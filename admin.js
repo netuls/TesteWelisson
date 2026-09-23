@@ -1003,7 +1003,6 @@ function renderDisponibilidade() {
     }
     // Mesmas regras do site para um horário deixar de aparecer para o cliente
     if (iso < hoje || (iso === hoje && ini <= agoraMin)) return cardIndisp(h, 'passou');
-    if (iso === hoje && ini <= agoraMin + 30) return cardIndisp(h, 'menos de 30 min');
     if (ini + DUR_NOVO > fimExp) return cardIndisp(h, 'fim do expediente');
     if (temAlmoco && ini < pausaFim && ini + DUR_NOVO > pausaIni) return cardIndisp(h, 'almoço');
     if (blocos.some(b => ini < b.fim && ini + DUR_NOVO > b.ini)) return cardIndisp(h, 'não cabe');
@@ -1018,8 +1017,7 @@ function renderDisponibilidade() {
     '<strong style="color:#EBC531;">' + ocupados + ' ocupado' + (ocupados === 1 ? '' : 's') + '</strong>' +
     ' · atendimento ' + escPlano(cfg.inicio || '') + ' às ' + escPlano(cfg.fim || '') +
     (temAlmoco ? ' (almoço ' + escPlano(cfg.almoco_inicio) + '–' + escPlano(cfg.almoco_fim) + ')' : '') +
-    (cfg.especial ? ' · <span style="color:#EBC531;">' + escPlano(cfg.especial) + '</span>' : '') +
-    (iso === hoje ? ' · o site só libera horários com 30 min de antecedência' : '');
+    (cfg.especial ? ' · <span style="color:#EBC531;">' + escPlano(cfg.especial) + '</span>' : '');
 
   // Agendamentos marcados em horário que não está na grade (ex.: atendimento avulso ou grade alterada depois)
   const fora = Object.keys(porHora).filter(h => !slots.includes(h)).sort();
@@ -3350,14 +3348,17 @@ async function salvarAtendimentoAvulso() {
       preco:       preco,
       data:        data,
       horario:     hora || '',
-      status:      'concluido',
+      status:      'agendado',   // a regra do Firestore só aceita 'agendado' na criação; concluído logo abaixo
       origem:      'avulso',
       obs:         obs,
       criadoEm:    firebase.firestore.FieldValue.serverTimestamp(),
       atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
     };
 
-    await db.collection('agendamentos').add(payload);
+    // 1) cria como agendado (passa na regra de create)
+    const ref = await db.collection('agendamentos').add(payload);
+    // 2) marca como concluído (o admin logado pode atualizar o status)
+    await ref.update({ status: 'concluido', atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
 
     // Atualiza histórico do cliente no Firestore (se tiver telefone)
     if (tel) {
