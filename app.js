@@ -785,13 +785,13 @@ async function carregarSlotsParaData(dataSelecionada) {
       }
     }
     const slots = gerarSlots(cfg.inicio, cfg.fim, cfg.almoco, cfg.almoco_inicio, cfg.almoco_fim);
-    const agora = new Date();
-    const hoje  = `${agora.getFullYear()}-${String(agora.getMonth()+1).padStart(2,'0')}-${String(agora.getDate()).padStart(2,'0')}`;
-    const agoraMin = agora.getHours() * 60 + agora.getMinutes();
     // Duração do serviço escolhido
     const servicoAtual = state && state.selected ? state.selected : null;
     const duracao = servicoAtual ? duracaoServico(servicoAtual.id) : DURACAO_PADRAO;
     const fimExpediente = horaParaMin(cfg.fim);
+    const agora = new Date();
+    const hoje  = `${agora.getFullYear()}-${String(agora.getMonth()+1).padStart(2,'0')}-${String(agora.getDate()).padStart(2,'0')}`;
+    const agoraMin = agora.getHours() * 60 + agora.getMinutes();
     const pausaAtiva = cfg.almoco === true
       && typeof cfg.almoco_inicio === 'string' && cfg.almoco_inicio.includes(':')
       && typeof cfg.almoco_fim    === 'string' && cfg.almoco_fim.includes(':');
@@ -804,7 +804,7 @@ async function carregarSlotsParaData(dataSelecionada) {
       if (fim > fimExpediente) return false;                              // passa do fim do expediente
       if (pausaAtiva && ini < pausaFim && fim > pausaIni) return false;   // invade o almoço
       if (ocupados.some(([oi, oe]) => ini < oe && fim > oi)) return false; // choca com outro agendamento
-      if (dataSelecionada === hoje && ini <= agoraMin + 30) return false; // horário que já passou
+      if (dataSelecionada === hoje && ini <= agoraMin) return false;      // horário que já passou (sem antecedência mínima)
       return true;
     });
     if (!livres.length) {
