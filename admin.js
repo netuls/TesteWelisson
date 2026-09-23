@@ -56,7 +56,7 @@ const ADMIN_EMAIL = BARBEARIA.adminEmail;   // vem do config.js
 const auth = firebase.auth();
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
-const SERVICES = BARBEARIA.servicos.map(s => ({ id: s.id, name: s.name, price: s.price, duracao: s.duracao }));   // vem do config.js
+let SERVICES = BARBEARIA.servicos.map(s => ({ id: s.id, name: s.name, price: s.price, duracao: s.duracao }));   // vem do config.js, até o painel salvar sua própria lista
 
 // ── Auth ─────────────────────────────────────────
 
@@ -142,6 +142,7 @@ function initAdmin() {
 // Gravados em config/barbearia; site e painel leem esse documento por cima do config.js.
 let _logoPendente;      // undefined = sem mudança; '' = remover a logo; 'data:image...' = nova logo
 let _planosEdit = [];   // rascunho dos planos que está sendo editado na tela
+let _servicosEdit = []; // rascunho dos serviços (com adições/remoções/ordem) que está sendo editado na tela
 const LOGO_MAX_CHARS = 600000;   // limite de tamanho da logo guardada (~450 KB de imagem)
 
 function ajStatus(id, texto, cor) {
@@ -516,82 +517,171 @@ async function carregarPrecosServicos() {
   try {
     const doc = await db.collection('config').doc('servicos').get();
     if (doc.exists) {
-      const dados = doc.data() || {}, precos = dados.precos || {}, duracoes = dados.duracoes || {};
-      SERVICES.forEach(s => {
-        const v = Number(precos[s.id]);
-        if (precos[s.id] != null && !isNaN(v) && v >= 0) s.price = v;
-        const d = Number(duracoes[s.id]);
-        if (duracoes[s.id] != null && d >= 5 && d <= 480) s.duracao = Math.round(d);
-      });
+      const dados = doc.data() || {};
+      if (Array.isArray(dados.lista) && dados.lista.length) {
+        // A lista salva no painel manda: já traz serviços adicionados, removidos e na ordem escolhida.
+        SERVICES = dados.lista.filter(s => s && s.id && s.name).map(s => ({
+          id: String(s.id),
+          name: String(s.name),
+          price: (Number(s.price) >= 0) ? Number(s.price) : 0,
+          duracao: (Number(s.duracao) >= 5 && Number(s.duracao) <= 480) ? Math.round(Number(s.duracao)) : 30,
+        }));
+      } else {
+        // Compatibilidade com dados salvos antes de existir a lista completa.
+        const precos = dados.precos || {}, duracoes = dados.duracoes || {};
+        SERVICES.forEach(s => {
+          const v = Number(precos[s.id]);
+          if (precos[s.id] != null && !isNaN(v) && v >= 0) s.price = v;
+          const d = Number(duracoes[s.id]);
+          if (duracoes[s.id] != null && d >= 5 && d <= 480) s.duracao = Math.round(d);
+        });
+      }
     }
   } catch (e) { console.warn('Não foi possível carregar os preços dos serviços', e); }
-  if (document.getElementById('tab-servicos') && document.getElementById('tab-servicos').classList.contains('active')) renderServicosEditor();
+  if (document.getElementById('tab-servicos') && document.getElementById('tab-servicos').classList.contains('active')) {
+    _servicosEdit = JSON.parse(JSON.stringify(SERVICES));
+    renderServicosEditor();
+  }
+}
+
+// Lê a lista de serviços tal como está na tela agora (preserva o que o usuário já digitou
+// antes de mover, remover ou adicionar uma linha).
+function lerServicosDoDOM() {
+  return [...document.querySelectorAll('#servicos-lista .serv-row')].map(row => ({
+    id: row.dataset.id,
+    name: row.querySelector('.serv-nome').value,
+    price: Number(String(row.querySelector('.serv-preco').value).replace(',', '.')) || 0,
+    duracao: Math.round(Number(String(row.querySelector('.serv-dur').value).replace(',', '.'))) || 30,
+  }));
 }
 
 function renderServicosEditor() {
   const el = document.getElementById('servicos-lista');
   if (!el) return;
-  el.innerHTML = SERVICES.map(s => {
-    const mudou = Math.abs(s.price - PRECOS_PADRAO[s.id]) > 0.004 || (s.duracao || 30) !== DURACOES_PADRAO[s.id];
-    return '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#0C1838;border:1px solid #122452;border-radius:6px;padding:12px 16px;">' +
+  if (!_servicosEdit.length) {
+    el.innerHTML = '<p style="color:#5E6E9E;font-size:13px;font-family:\'Roboto\',sans-serif;">Nenhum serviço cadastrado. Clique em “Adicionar serviço”.</p>';
+    document.getElementById('servicos-status').textContent = '';
+    return;
+  }
+  const ultimo = _servicosEdit.length - 1;
+  el.innerHTML = _servicosEdit.map((s, i) => {
+    const temPadrao = PRECOS_PADRAO[s.id] != null;
+    const mudou = temPadrao && (Math.abs(s.price - PRECOS_PADRAO[s.id]) > 0.004 || (s.duracao || 30) !== DURACOES_PADRAO[s.id]);
+    const corCima = i === 0 ? '#3A4A78' : '#94A4CC';
+    const corBaixo = i === ultimo ? '#3A4A78' : '#94A4CC';
+    return '<div class="serv-row" data-idx="' + i + '" data-id="' + escPlano(s.id) + '" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#0C1838;border:1px solid #122452;border-radius:6px;padding:12px 16px;">' +
+      '<div style="display:flex;flex-direction:column;gap:3px;">' +
+        '<button type="button" onclick="moverServico(' + i + ',-1)"' + (i === 0 ? ' disabled' : '') + ' title="Mover para cima" ' +
+          'style="background:#0F1F45;border:1px solid #233F80;color:' + corCima + ';width:26px;height:22px;border-radius:4px;cursor:' + (i === 0 ? 'default' : 'pointer') + ';font-size:10px;line-height:1;padding:0;">▲</button>' +
+        '<button type="button" onclick="moverServico(' + i + ',1)"' + (i === ultimo ? ' disabled' : '') + ' title="Mover para baixo" ' +
+          'style="background:#0F1F45;border:1px solid #233F80;color:' + corBaixo + ';width:26px;height:22px;border-radius:4px;cursor:' + (i === ultimo ? 'default' : 'pointer') + ';font-size:10px;line-height:1;padding:0;">▼</button>' +
+      '</div>' +
       '<div style="flex:1;min-width:160px;">' +
-        '<div style="font-family:\'Oswald\',sans-serif;font-size:14px;letter-spacing:.5px;color:#F1EAD6;">' + escPlano(s.name) + '</div>' +
-        '<div style="font-family:\'Roboto\',sans-serif;font-size:11px;color:#5E6E9E;">Padrão: ' + fmtPrecoServ(PRECOS_PADRAO[s.id]) + ' · ' + DURACOES_PADRAO[s.id] + ' min' + (mudou ? ' · <span style="color:#EBC531;">alterado</span>' : '') + '</div>' +
+        '<input class="aj-in serv-nome" value="' + escPlano(s.name) + '" placeholder="Nome do serviço" ' +
+          'style="width:100%;background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:8px 10px;color:#F1EAD6;font-family:\'Oswald\',sans-serif;font-size:14px;letter-spacing:.5px;outline:none;margin-bottom:4px;box-sizing:border-box;">' +
+        '<div style="font-family:\'Roboto\',sans-serif;font-size:11px;color:#5E6E9E;">' +
+          (temPadrao
+            ? ('Padrão: ' + fmtPrecoServ(PRECOS_PADRAO[s.id]) + ' · ' + DURACOES_PADRAO[s.id] + ' min' + (mudou ? ' · <span style="color:#EBC531;">alterado</span>' : ''))
+            : '<span style="color:#5BA6E0;">Serviço adicionado no painel</span>') +
+        '</div>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:6px;">' +
         '<span style="font-family:\'Roboto\',sans-serif;font-size:13px;color:#7183B4;">R$</span>' +
-        '<input type="number" min="0" step="0.5" data-serv="' + escPlano(s.id) + '" value="' + s.price.toFixed(2) + '" ' +
+        '<input type="number" min="0" step="0.5" class="serv-preco" value="' + Number(s.price).toFixed(2) + '" ' +
           'style="width:100px;background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:9px 10px;color:#F1EAD6;font-family:\'Roboto\',sans-serif;font-size:15px;outline:none;"/>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:6px;" title="Tempo que o serviço ocupa na agenda">' +
-        '<input type="number" min="5" max="480" step="5" data-dur="' + escPlano(s.id) + '" value="' + (s.duracao || 30) + '" ' +
+        '<input type="number" min="5" max="480" step="5" class="serv-dur" value="' + (s.duracao || 30) + '" ' +
           'style="width:76px;background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:9px 10px;color:#F1EAD6;font-family:\'Roboto\',sans-serif;font-size:15px;outline:none;"/>' +
         '<span style="font-family:\'Roboto\',sans-serif;font-size:13px;color:#7183B4;">min</span>' +
-      '</div></div>';
+      '</div>' +
+      '<button type="button" onclick="removerServico(' + i + ')" title="Remover serviço" ' +
+        'style="background:transparent;border:1px solid rgba(200,60,60,.4);color:#e05555;width:34px;height:34px;border-radius:6px;cursor:pointer;font-size:15px;line-height:1;flex-shrink:0;">✕</button>' +
+    '</div>';
   }).join('');
   document.getElementById('servicos-status').textContent = '';
 }
 
+// Move a linha i uma posição para cima (dir=-1) ou para baixo (dir=1)
+function moverServico(i, dir) {
+  _servicosEdit = lerServicosDoDOM();
+  const j = i + dir;
+  if (j < 0 || j >= _servicosEdit.length) return;
+  [_servicosEdit[i], _servicosEdit[j]] = [_servicosEdit[j], _servicosEdit[i]];
+  renderServicosEditor();
+}
+
+function removerServico(i) {
+  _servicosEdit = lerServicosDoDOM();
+  const s = _servicosEdit[i];
+  if (!s) return;
+  if (!confirm('Remover o serviço "' + (s.name || 'sem nome') + '"? Agendamentos já feitos não são afetados. Só vale depois de clicar em Salvar.')) return;
+  _servicosEdit.splice(i, 1);
+  renderServicosEditor();
+}
+
+function adicionarServico() {
+  _servicosEdit = lerServicosDoDOM();
+  _servicosEdit.push({ id: 'srv' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: 'Novo serviço', price: 0, duracao: 30 });
+  renderServicosEditor();
+  const linhas = document.querySelectorAll('#servicos-lista .serv-row');
+  if (linhas.length) linhas[linhas.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const ultimoNome = document.querySelector('#servicos-lista .serv-row:last-child .serv-nome');
+  if (ultimoNome) { ultimoNome.focus(); ultimoNome.select(); }
+}
+
 function restaurarPrecosPadrao() {
-  document.querySelectorAll('#servicos-lista input[data-serv]').forEach(inp => {
-    inp.value = Number(PRECOS_PADRAO[inp.dataset.serv]).toFixed(2);
+  document.querySelectorAll('#servicos-lista .serv-row').forEach(row => {
+    const id = row.dataset.id;
+    if (PRECOS_PADRAO[id] == null) return; // serviço adicionado no painel não tem valor padrão
+    row.querySelector('.serv-preco').value = Number(PRECOS_PADRAO[id]).toFixed(2);
+    row.querySelector('.serv-dur').value = DURACOES_PADRAO[id];
   });
-  document.querySelectorAll('#servicos-lista input[data-dur]').forEach(inp => { inp.value = DURACOES_PADRAO[inp.dataset.dur]; });
   const st = document.getElementById('servicos-status');
   st.style.color = '#94A4CC';
-  st.textContent = 'Valores padrão preenchidos. Clique em Salvar para aplicar.';
+  st.textContent = 'Valores padrão preenchidos nos serviços originais. Clique em Salvar para aplicar.';
 }
 
 async function salvarServicos() {
   const st = document.getElementById('servicos-status');
   const btn = document.getElementById('btn-salvar-servicos');
-  const novos = {};
+  const linhas = [...document.querySelectorAll('#servicos-lista .serv-row')];
+  if (!linhas.length) { st.style.color = '#e05555'; st.textContent = 'Adicione pelo menos um serviço.'; return; }
   let invalido = false;
-  document.querySelectorAll('#servicos-lista input[data-serv]').forEach(inp => {
-    const v = Number(String(inp.value).replace(',', '.'));
-    if (inp.value === '' || isNaN(v) || v < 0) { invalido = true; inp.style.borderColor = '#e05555'; }
-    else { inp.style.borderColor = '#233F80'; novos[inp.dataset.serv] = Math.round(v * 100) / 100; }
+  const idsVistos = {};
+  const lista = linhas.map(row => {
+    const nomeEl = row.querySelector('.serv-nome');
+    const precoEl = row.querySelector('.serv-preco');
+    const durEl = row.querySelector('.serv-dur');
+    const nome = nomeEl.value.trim();
+    const preco = Number(String(precoEl.value).replace(',', '.'));
+    const dur = Math.round(Number(String(durEl.value).replace(',', '.')));
+    let ok = true;
+    if (!nome) { ok = false; nomeEl.style.borderColor = '#e05555'; } else { nomeEl.style.borderColor = '#233F80'; }
+    if (precoEl.value === '' || isNaN(preco) || preco < 0) { ok = false; precoEl.style.borderColor = '#e05555'; } else { precoEl.style.borderColor = '#233F80'; }
+    if (durEl.value === '' || isNaN(dur) || dur < 5 || dur > 480) { ok = false; durEl.style.borderColor = '#e05555'; } else { durEl.style.borderColor = '#233F80'; }
+    if (!ok) invalido = true;
+    let id = row.dataset.id || ('srv' + Date.now().toString(36));
+    if (idsVistos[id]) id = id + '_' + Math.random().toString(36).slice(2, 5);
+    idsVistos[id] = true;
+    return { id, name: nome, price: Math.round(preco * 100) / 100, duracao: dur };
   });
-  const tempos = {};
-  document.querySelectorAll('#servicos-lista input[data-dur]').forEach(inp => {
-    const d = Number(String(inp.value).replace(',', '.'));
-    if (inp.value === '' || isNaN(d) || d < 5 || d > 480) { invalido = true; inp.style.borderColor = '#e05555'; }
-    else { inp.style.borderColor = '#233F80'; tempos[inp.dataset.dur] = Math.round(d); }
-  });
-  if (invalido) { st.style.color = '#e05555'; st.textContent = 'Há valores inválidos. Valor: zero ou mais. Tempo: de 5 a 480 minutos.'; return; }
+  if (invalido) { st.style.color = '#e05555'; st.textContent = 'Há campos inválidos. Nome: obrigatório. Valor: zero ou mais. Tempo: de 5 a 480 minutos.'; return; }
   btn.disabled = true; st.style.color = '#94A4CC'; st.textContent = 'Salvando...';
   try {
-    const lista = SERVICES.map(s => ({ id: s.id, name: s.name, price: novos[s.id] != null ? novos[s.id] : s.price, duracao: tempos[s.id] != null ? tempos[s.id] : (s.duracao || 30) }));
+    const precos = {}, duracoes = {};
+    lista.forEach(s => { precos[s.id] = s.price; duracoes[s.id] = s.duracao; });
     await db.collection('config').doc('servicos').set({
-      precos: novos,
-      duracoes: tempos,
+      precos,
+      duracoes,
       lista,
       atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
     });
-    SERVICES.forEach(s => { if (novos[s.id] != null) s.price = novos[s.id]; if (tempos[s.id] != null) s.duracao = tempos[s.id]; });
+    SERVICES = lista.map(s => ({ ...s }));
+    _servicosEdit = JSON.parse(JSON.stringify(SERVICES));
     try { renderDisponibilidade(); } catch (e) {}
     renderServicosEditor();
-    st.style.color = '#4caf50'; st.textContent = 'Valores e tempos salvos! Já valem para novos agendamentos.';
+    st.style.color = '#4caf50'; st.textContent = 'Serviços salvos! Já valem para novos agendamentos.';
     showToast('Serviços atualizados.');
   } catch (e) {
     console.warn(e);
@@ -615,7 +705,7 @@ function showTab(tab, el) {
   const titles = { dashboard: 'Dashboard', agendamentos: 'Agendamentos', horarios: 'Horarios de Atendimento', servicos: 'Ajustes', datas: 'Datas Especiais', clientes: 'Clientes' };
   document.getElementById('page-title').textContent = titles[tab] || tab;
   if (tab === 'horarios') carregarHorarios();
-  if (tab === 'servicos') { renderServicosEditor(); renderAjustes(); }
+  if (tab === 'servicos') { _servicosEdit = JSON.parse(JSON.stringify(SERVICES)); renderServicosEditor(); renderAjustes(); }
   if (tab === 'datas') carregarDatasEspeciais();
   if (tab === 'clientes') renderClientes();
   gerenciarFab(tab);
@@ -3244,4 +3334,3 @@ document.addEventListener('click', function unlockOnce() {
   document.removeEventListener('click', unlockOnce);
   iniciarPushNotifications();
 });
-  
