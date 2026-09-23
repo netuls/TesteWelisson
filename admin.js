@@ -563,19 +563,20 @@ function renderServicosEditor() {
     document.getElementById('servicos-status').textContent = '';
     return;
   }
-  const ultimo = _servicosEdit.length - 1;
   el.innerHTML = _servicosEdit.map((s, i) => {
     const temPadrao = PRECOS_PADRAO[s.id] != null;
     const mudou = temPadrao && (Math.abs(s.price - PRECOS_PADRAO[s.id]) > 0.004 || (s.duracao || 30) !== DURACOES_PADRAO[s.id]);
-    const corCima = i === 0 ? '#3A4A78' : '#94A4CC';
-    const corBaixo = i === ultimo ? '#3A4A78' : '#94A4CC';
     return '<div class="serv-row" data-idx="' + i + '" data-id="' + escPlano(s.id) + '" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#0C1838;border:1px solid #122452;border-radius:6px;padding:12px 16px;">' +
-      '<div style="display:flex;flex-direction:column;gap:3px;">' +
-        '<button type="button" onclick="moverServico(' + i + ',-1)"' + (i === 0 ? ' disabled' : '') + ' title="Mover para cima" ' +
-          'style="background:#0F1F45;border:1px solid #233F80;color:' + corCima + ';width:26px;height:22px;border-radius:4px;cursor:' + (i === 0 ? 'default' : 'pointer') + ';font-size:10px;line-height:1;padding:0;">▲</button>' +
-        '<button type="button" onclick="moverServico(' + i + ',1)"' + (i === ultimo ? ' disabled' : '') + ' title="Mover para baixo" ' +
-          'style="background:#0F1F45;border:1px solid #233F80;color:' + corBaixo + ';width:26px;height:22px;border-radius:4px;cursor:' + (i === ultimo ? 'default' : 'pointer') + ';font-size:10px;line-height:1;padding:0;">▼</button>' +
-      '</div>' +
+      '<span class="serv-handle" tabindex="0" role="button" aria-label="Arrastar para reordenar ' + escPlano(s.name) + '" ' +
+        'title="Arraste para reordenar (ou use as setas do teclado)" ' +
+        'onpointerdown="iniciarArrastoServico(event,' + i + ')" onkeydown="teclaArrastoServico(event,' + i + ')" ' +
+        'style="cursor:grab;touch-action:none;color:#5E6E9E;display:flex;align-items:center;padding:4px 8px;border-radius:4px;flex-shrink:0;outline:none;">' +
+        '<svg width="14" height="20" viewBox="0 0 14 20" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+          '<circle cx="4" cy="3" r="1.6" fill="currentColor"/><circle cx="10" cy="3" r="1.6" fill="currentColor"/>' +
+          '<circle cx="4" cy="10" r="1.6" fill="currentColor"/><circle cx="10" cy="10" r="1.6" fill="currentColor"/>' +
+          '<circle cx="4" cy="17" r="1.6" fill="currentColor"/><circle cx="10" cy="17" r="1.6" fill="currentColor"/>' +
+        '</svg>' +
+      '</span>' +
       '<div style="flex:1;min-width:160px;">' +
         '<input class="aj-in serv-nome" value="' + escPlano(s.name) + '" placeholder="Nome do serviço" ' +
           'style="width:100%;background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:8px 10px;color:#F1EAD6;font-family:\'Oswald\',sans-serif;font-size:14px;letter-spacing:.5px;outline:none;margin-bottom:4px;box-sizing:border-box;">' +
@@ -602,13 +603,89 @@ function renderServicosEditor() {
   document.getElementById('servicos-status').textContent = '';
 }
 
-// Move a linha i uma posição para cima (dir=-1) ou para baixo (dir=1)
-function moverServico(i, dir) {
+// ── Arrastar para reordenar os serviços (mouse e toque, via Pointer Events) ──
+let _servDrag = null;
+
+function iniciarArrastoServico(e, i) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return; // só o botão esquerdo do mouse
+  e.preventDefault();
   _servicosEdit = lerServicosDoDOM();
-  const j = i + dir;
+  const lista = document.getElementById('servicos-lista');
+  const linhas = [...lista.querySelectorAll('.serv-row')];
+  const row = linhas[i];
+  if (!row) return;
+  const rect = row.getBoundingClientRect();
+
+  const placeholder = document.createElement('div');
+  placeholder.className = 'serv-placeholder';
+  placeholder.style.cssText = 'height:' + rect.height + 'px;border:2px dashed #2C4E9E;border-radius:6px;background:rgba(44,78,158,.12);box-sizing:border-box;margin:0;';
+  row.parentNode.insertBefore(placeholder, row);
+
+  row.style.position = 'fixed';
+  row.style.left = rect.left + 'px';
+  row.style.top = rect.top + 'px';
+  row.style.width = rect.width + 'px';
+  row.style.zIndex = '999';
+  row.style.boxShadow = '0 10px 28px rgba(0,0,0,.45)';
+  row.style.pointerEvents = 'none';
+  document.body.style.userSelect = 'none';
+  document.body.style.cursor = 'grabbing';
+
+  const handle = e.currentTarget;
+  _servDrag = { row, placeholder, offsetY: e.clientY - rect.top, handle };
+  try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+  handle.addEventListener('pointermove', moverArrastoServico);
+  handle.addEventListener('pointerup', soltarArrastoServico, { once: true });
+  handle.addEventListener('pointercancel', soltarArrastoServico, { once: true });
+}
+
+function moverArrastoServico(e) {
+  if (!_servDrag) return;
+  const { row, placeholder, offsetY } = _servDrag;
+  row.style.top = (e.clientY - offsetY) + 'px';
+
+  const lista = document.getElementById('servicos-lista');
+  const irmaos = [...lista.children].filter(el => el !== row && el !== placeholder && el.classList.contains('serv-row'));
+  let inserido = false;
+  for (const el of irmaos) {
+    const r = el.getBoundingClientRect();
+    if (e.clientY < r.top + r.height / 2) { lista.insertBefore(placeholder, el); inserido = true; break; }
+  }
+  if (!inserido) lista.appendChild(placeholder);
+}
+
+function soltarArrastoServico(e) {
+  if (!_servDrag) return;
+  const { row, placeholder, handle } = _servDrag;
+  handle.removeEventListener('pointermove', moverArrastoServico);
+  try { handle.releasePointerCapture(e.pointerId); } catch (err) {}
+  placeholder.parentNode.insertBefore(row, placeholder);
+  placeholder.remove();
+  row.style.position = '';
+  row.style.left = '';
+  row.style.top = '';
+  row.style.width = '';
+  row.style.zIndex = '';
+  row.style.boxShadow = '';
+  row.style.pointerEvents = '';
+  document.body.style.userSelect = '';
+  document.body.style.cursor = '';
+  _servDrag = null;
+  _servicosEdit = lerServicosDoDOM();
+  renderServicosEditor();
+}
+
+// Acessibilidade: com o foco na alcinha, as setas ↑ ↓ do teclado também reordenam
+function teclaArrastoServico(e, i) {
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+  e.preventDefault();
+  _servicosEdit = lerServicosDoDOM();
+  const j = i + (e.key === 'ArrowUp' ? -1 : 1);
   if (j < 0 || j >= _servicosEdit.length) return;
   [_servicosEdit[i], _servicosEdit[j]] = [_servicosEdit[j], _servicosEdit[i]];
   renderServicosEditor();
+  const alcas = document.querySelectorAll('#servicos-lista .serv-handle');
+  if (alcas[j]) alcas[j].focus();
 }
 
 function removerServico(i) {
