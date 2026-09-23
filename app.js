@@ -17,15 +17,30 @@ const HERO_SLIDES = [
 ];
 
 // ─── Serviços ─────────────────────────────────────
-const SERVICES = BARBEARIA.servicos.map(s => ({ ...s }));   // vem do config.js
+// "let" porque o painel pode substituir a lista inteira (adicionar, remover ou reordenar serviços).
+let SERVICES = BARBEARIA.servicos.map(s => ({ ...s }));   // vem do config.js, até o painel salvar uma lista própria
 
 
-// ─── Preços editáveis pelo painel admin ────────────
-// O painel grava os valores em config/servicos ({ precos: { corte: 30, ... } }).
-// O último valor conhecido fica guardado no aparelho, para a primeira tela já sair com o preço certo;
+// ─── Preços, tempos e lista editáveis pelo painel admin ────────────
+// O painel grava tudo em config/servicos: { precos: {...}, duracoes: {...}, lista: [{id,name,price,duracao}, ...] }.
+// "lista" é a fonte da verdade quando existe (já reflete serviços adicionados/removidos/reordenados no painel).
+// O último valor conhecido fica guardado no aparelho, para a primeira tela já sair certa;
 // em seguida buscamos o valor atual no Firebase e atualizamos a tela se mudou.
 const PRECOS_CACHE_KEY = 'wb_precos_servicos_v1';
 const DURACOES_CACHE_KEY = 'wb_duracoes_servicos_v1';   // tempo de cada serviço (minutos), também editável no painel
+const LISTA_CACHE_KEY = 'wb_lista_servicos_v1';   // lista completa de serviços (com o que foi adicionado/reordenado no painel)
+
+// Valida e limpa uma lista de serviços vinda do Firebase/cache. Retorna null se não houver nada aproveitável.
+function normalizarListaServicos(lista) {
+  if (!Array.isArray(lista)) return null;
+  const limpa = lista.filter(s => s && s.id && s.name).map(s => ({
+    id: String(s.id),
+    name: String(s.name),
+    price: (Number(s.price) >= 0) ? Number(s.price) : 0,
+    duracao: (Number(s.duracao) >= 5 && Number(s.duracao) <= 480) ? Math.round(Number(s.duracao)) : 30,
+  }));
+  return limpa.length ? limpa : null;
+}
 
 // Aplica { id: preço } sobre SERVICES. Retorna true se algum preço mudou.
 function aplicarPrecosServicos(precos) {
@@ -46,6 +61,10 @@ function aplicarDuracoesServicos(duracoes) {
   });
 }
 try {
+  const listaCache = normalizarListaServicos(JSON.parse(localStorage.getItem(LISTA_CACHE_KEY) || 'null'));
+  if (listaCache) SERVICES = listaCache;
+} catch (e) { /* sem cache: segue com a lista do config.js */ }
+try {
   aplicarDuracoesServicos(JSON.parse(localStorage.getItem(DURACOES_CACHE_KEY) || 'null'));
 } catch (e) { /* sem cache */ }
 try {
@@ -56,20 +75,37 @@ async function carregarPrecosServicos() {
   try {
     const doc = await firebase.firestore().collection('config').doc('servicos').get();
     if (!doc.exists) return;
-    const dados = doc.data() || {}, precos = dados.precos || {};
-    aplicarDuracoesServicos(dados.duracoes || {});
-    try { localStorage.setItem(DURACOES_CACHE_KEY, JSON.stringify(dados.duracoes || {})); } catch (e) {}
-    const mudou = aplicarPrecosServicos(precos);
-    try { localStorage.setItem(PRECOS_CACHE_KEY, JSON.stringify(precos)); } catch (e) {}
+    const dados = doc.data() || {};
+    const listaNova = normalizarListaServicos(dados.lista);
+    let mudou = false;
+    if (listaNova) {
+      // O painel já salva a lista inteira (com adições, remoções e ordem): ela manda.
+      mudou = JSON.stringify(listaNova) !== JSON.stringify(SERVICES);
+      SERVICES = listaNova;
+      try { localStorage.setItem(LISTA_CACHE_KEY, JSON.stringify(listaNova)); } catch (e) {}
+    } else {
+      // Compatibilidade: painéis antigos que só gravaram preços/tempos, sem lista.
+      const precos = dados.precos || {};
+      aplicarDuracoesServicos(dados.duracoes || {});
+      try { localStorage.setItem(DURACOES_CACHE_KEY, JSON.stringify(dados.duracoes || {})); } catch (e) {}
+      mudou = aplicarPrecosServicos(precos);
+      try { localStorage.setItem(PRECOS_CACHE_KEY, JSON.stringify(precos)); } catch (e) {}
+    }
     if (!mudou) return;
     renderServices();
     renderServiceOptions();
-    // mantém a seleção e o resumo coerentes com o novo preço
+    // mantém a seleção e o resumo coerentes com o serviço (pode ter mudado de preço, ou sumido do painel)
     if (typeof state !== 'undefined' && state.selected) {
-      const item = document.getElementById('opt-' + state.selected.id);
-      if (item) item.classList.add('selected');
-      const passo3 = document.getElementById('step-3');
-      if (passo3 && passo3.classList.contains('active')) renderConfirm();
+      const aindaExiste = SERVICES.find(s => s.id === state.selected.id);
+      if (aindaExiste) {
+        state.selected = aindaExiste;
+        const item = document.getElementById('opt-' + state.selected.id);
+        if (item) item.classList.add('selected');
+        const passo3 = document.getElementById('step-3');
+        if (passo3 && passo3.classList.contains('active')) renderConfirm();
+      } else {
+        state.selected = null;
+      }
     }
   } catch (e) { console.warn('Preços dos serviços: usando os últimos valores conhecidos.', e); }
 }
