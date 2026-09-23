@@ -164,20 +164,28 @@ function mesDe(dataISO) {
   const mm = String(m).padStart(2, '0');
   return [`${y}-${mm}-01`, `${y}-${mm}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`];
 }
+// Consulta os atendimentos já usados do plano na janela do limite.
+// Importante: se a consulta ao Firestore falhar por qualquer motivo (sem índice, sem conexão,
+// timeout etc.), tratamos como limite ATINGIDO em vez de liberar sem checar — "fail closed",
+// não "fail open". O comportamento anterior devolvia null nesse caso, e null fazia o site
+// liberar o serviço de graça sem nenhuma verificação.
 async function checarUsoPlano(data) {
   const u = currentUser;
   const lim = u && PLAN_LIMITS[u.plano];
   if (!lim || DEMO_MODE || !planoAtivo(u, data)) return null;
   const [ini, fim] = lim.por === 'semana' ? semanaDe(data) : lim.por === 'mes' ? mesDe(data) : [u.planoPagoEm || '0000-00-00', u.planoVenceEm];
   try {
-    const snap = await firebase.firestore().collection('agendamentos')
+    const snap = await comTimeout(firebase.firestore().collection('agendamentos')
       .where('telefone', '==', phoneKey(u.telefone || ''))
       .where('status', 'in', ['agendado', 'confirmado', 'concluido'])
-      .get();
+      .get());
     const usados = snap.docs.map(d => d.data())
       .filter(a => a.data >= ini && a.data <= fim && Number(a.preco) === 0 && /^Plano /.test(a.obs || '')).length;
     return { atingido: usados >= lim.qtd, usados, qtd: lim.qtd, por: lim.por };
-  } catch (e) { console.warn('Uso do plano:', e); return null; }
+  } catch (e) {
+    console.error('Uso do plano: erro ao consultar o Firestore. Bloqueando o benefício por segurança.', e);
+    return { atingido: true, usados: lim.qtd, qtd: lim.qtd, por: lim.por, erro: true };
+  }
 }
 function limitePlanoAtingido() {
   return !!(typeof state !== 'undefined' && state && state.planoUso && state.planoUso.atingido);
@@ -934,6 +942,12 @@ function formatDate(d) {
 
 function renderConfirm() {
   const sel = state.selected;
+  const planoRestrito = limitePlanoAtingido() && PLAN_COVERAGE[currentUser.plano].includes(sel.id);
+  const msgPlanoRestrito = planoRestrito
+    ? (state.planoUso.erro
+        ? 'Não foi possível confirmar agora o uso do seu plano. Por segurança, este atendimento será cobrado normalmente. Se achar que isso é um engano, fale com a gente.'
+        : `Você já usou ${state.planoUso.usados} de ${state.planoUso.qtd} atendimentos do plano ${state.planoUso.por === 'semana' ? 'nesta semana' : 'neste mês'}. Este atendimento será cobrado.`)
+    : '';
   document.getElementById('confirm-summary').innerHTML = `
     <div class="confirm-row"><label>Serviço</label><span>${sel.name}</span></div>
     <div class="confirm-row"><label>Cliente</label><span>${state.name}</span></div>
@@ -941,7 +955,7 @@ function renderConfirm() {
     <div class="confirm-row"><label>Data</label><span>${formatDate(state.date)}</span></div>
     <div class="confirm-row"><label>Horário</label><span>${state.time}</span></div>
     ${state.obs ? `<div class="confirm-row"><label>Obs.</label><span>${state.obs}</span></div>` : ''}
-    ${(limitePlanoAtingido() && PLAN_COVERAGE[currentUser.plano].includes(sel.id)) ? `<div class="confirm-row"><label>Plano</label><span style="font-size:13px;">Você já usou ${state.planoUso.usados} de ${state.planoUso.qtd} atendimentos do plano ${state.planoUso.por === 'semana' ? 'nesta semana' : 'neste mês'}. Este atendimento será cobrado.</span></div>` : ''}
+    ${planoRestrito ? `<div class="confirm-row"><label>Plano</label><span style="font-size:13px;">${msgPlanoRestrito}</span></div>` : ''}
     ${planoVenceAntesDaData(currentUser) ? `<div class="confirm-row"><label>Plano</label><span style="font-size:13px;">Seu plano vence em ${formatDate(currentUser.planoVenceEm)}, antes desta data. O serviço será cobrado.</span></div>` : ''}
     <div class="confirm-row confirm-total"><label>Valor</label>
       ${servicoCoberto(sel)
