@@ -226,8 +226,18 @@ function limparTextoPix(s, max) {
     .replace(/[^a-zA-Z0-9 ]/g, '').trim().toUpperCase().slice(0, max);
   return limpo || 'NA';
 }
+// Limpa a chave Pix de máscara/formatação (ex.: "(85) 99999-9999" -> "85999999999").
+// Preserva "+", "@", "." e "-" no miolo, já que chave aleatória (UUID) e e-mail usam esses caracteres.
+function limparChavePix(chave) {
+  let c = String(chave || '').trim().replace(/[()\s]/g, '');
+  // Telefone: só dígitos (e talvez '+' na frente) e faltando o "+55" -> completa, é o formato exigido pelo Pix
+  if (/^\d{10,11}$/.test(c)) c = '+55' + c;
+  else if (/^55\d{10,11}$/.test(c)) c = '+' + c;
+  return c;
+}
+
 function gerarPayloadPix({ chave, nome, cidade, valor, txid }) {
-  const merchantAccountInfo = tlvPix('26', tlvPix('00', 'br.gov.bcb.pix') + tlvPix('01', String(chave).trim()));
+  const merchantAccountInfo = tlvPix('26', tlvPix('00', 'br.gov.bcb.pix') + tlvPix('01', limparChavePix(chave)));
   const txidLimpo = String(txid || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 25) || '***';
   let payload =
     tlvPix('00', '01') +                                   // Payload Format Indicator
