@@ -152,8 +152,75 @@ function montarPlanos() {
 }
 
 // ─── Estado global ─────────────────────────────────
-let state = { selected: null, name: '', phone: '', date: '', time: '', obs: '' };
+let state = { selected: null, name: '', phone: '', date: '', time: '', obs: '', formaPagamento: null };
 window.state = state;
+
+// ─── Formas de Pagamento ─────────────────────────────────
+// Vêm de config/pagamento (editável no painel, aba Ajustes). Se a barbearia ainda não configurou nada,
+// usa este padrão simples (Dinheiro, Cartão, Pix sem QR Code) para o passo de agendamento não ficar vazio.
+let FORMAS_PAGAMENTO = [
+  { id: 'dinheiro', nome: 'Dinheiro', tipo: 'outro', ativo: true },
+  { id: 'cartao',   nome: 'Cartão',   tipo: 'outro', ativo: true },
+  { id: 'pix',      nome: 'Pix',      tipo: 'pix',   ativo: true, pixChave: '', pixQr: '' },
+];
+
+async function carregarFormasPagamento() {
+  try {
+    const doc = await firebase.firestore().collection('config').doc('pagamento').get();
+    if (doc.exists) {
+      const dados = doc.data() || {};
+      if (Array.isArray(dados.formas) && dados.formas.length) {
+        FORMAS_PAGAMENTO = dados.formas.filter(f => f && f.id && f.nome && f.ativo !== false);
+      }
+    }
+  } catch (e) { console.warn('Não foi possível carregar as formas de pagamento', e); }
+  renderFormasPagamentoOpcoes();
+}
+
+function formaPagamentoPorId(id) {
+  return FORMAS_PAGAMENTO.find(f => f.id === id) || null;
+}
+
+function renderFormasPagamentoOpcoes() {
+  const list = document.getElementById('pagamento-options-list');
+  if (!list) return;
+  list.innerHTML = FORMAS_PAGAMENTO.map(f => `
+    <div class="option-item" id="pagopt-${f.id}" onclick="selecionarPagamento('${f.id}')">
+      <span>${f.nome}</span>
+    </div>`).join('');
+  // Mantém a seleção já feita (ex.: ao voltar do passo 3)
+  if (state.formaPagamento) {
+    const el = document.getElementById('pagopt-' + state.formaPagamento);
+    if (el) el.classList.add('selected');
+  }
+}
+
+window.selecionarPagamento = function(id) {
+  state.formaPagamento = id;
+  document.querySelectorAll('#pagamento-options-list .option-item').forEach(el => el.classList.remove('selected'));
+  const item = document.getElementById('pagopt-' + id);
+  if (item) item.classList.add('selected');
+};
+
+function copiarChavePix(texto) {
+  navigator.clipboard.writeText(texto).then(() => showToast('Chave Pix copiada!')).catch(() => {});
+}
+
+// Monta o bloco com QR Code + chave Pix (reaproveitado na confirmação e na tela de sucesso)
+function montarBoxPix(forma) {
+  if (!forma || forma.tipo !== 'pix' || (!forma.pixQr && !forma.pixChave)) return '';
+  return `
+    <div style="margin-top:16px;padding:18px;background:#0C1838;border:1px solid #16295C;border-radius:8px;text-align:center;">
+      <p style="font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:2px;color:#EBC531;text-transform:uppercase;margin:0 0 12px;">Pague com Pix</p>
+      ${forma.pixQr ? `<img src="${forma.pixQr}" alt="QR Code Pix" style="width:180px;height:180px;object-fit:contain;background:#fff;border-radius:8px;padding:6px;margin-bottom:12px;">` : ''}
+      ${forma.pixChave ? `
+        <div style="display:flex;align-items:center;gap:8px;justify-content:center;flex-wrap:wrap;">
+          <code style="background:#0F1F45;padding:8px 12px;border-radius:6px;color:#F1EAD6;font-size:13px;word-break:break-all;">${forma.pixChave}</code>
+          <button type="button" onclick="copiarChavePix('${forma.pixChave.replace(/'/g, "\\'")}')"
+            style="background:#1B3168;border:1px solid #2C4E9E;color:#F1EAD6;padding:8px 14px;font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border-radius:4px;">Copiar</button>
+        </div>` : ''}
+    </div>`;
+}
 let currentUser = null; // { nome, telefone } — preenchido após login
 
 // ══════════════════════════════════════════════════
@@ -960,8 +1027,8 @@ window.goToConfirm = async function() {
   const phone = document.getElementById('client-phone').value.trim();
   const date  = state.date || document.getElementById('pref-date').value;
   const time  = document.getElementById('pref-time').value;
-  if (!name || !phone || !date || !time) {
-    alert('Por favor, preencha todos os campos obrigatórios (*).');
+  if (!name || !phone || !date || !time || !state.formaPagamento) {
+    alert('Por favor, preencha todos os campos obrigatórios (*), incluindo a forma de pagamento.');
     return;
   }
   state.name = name; state.phone = phone; state.date = date; state.time = time;
@@ -984,12 +1051,14 @@ function renderConfirm() {
         ? 'Não foi possível confirmar agora o uso do seu plano. Por segurança, este atendimento será cobrado normalmente. Se achar que isso é um engano, fale com a gente.'
         : `Você já usou ${state.planoUso.usados} de ${state.planoUso.qtd} atendimentos do plano ${state.planoUso.por === 'semana' ? 'nesta semana' : 'neste mês'}. Este atendimento será cobrado.`)
     : '';
+  const forma = formaPagamentoPorId(state.formaPagamento);
   document.getElementById('confirm-summary').innerHTML = `
     <div class="confirm-row"><label>Serviço</label><span>${sel.name}</span></div>
     <div class="confirm-row"><label>Cliente</label><span>${state.name}</span></div>
     <div class="confirm-row"><label>WhatsApp</label><span>${state.phone}</span></div>
     <div class="confirm-row"><label>Data</label><span>${formatDate(state.date)}</span></div>
     <div class="confirm-row"><label>Horário</label><span>${state.time}</span></div>
+    <div class="confirm-row"><label>Pagamento</label><span>${forma ? forma.nome : ''}</span></div>
     ${state.obs ? `<div class="confirm-row"><label>Obs.</label><span>${state.obs}</span></div>` : ''}
     ${planoRestrito ? `<div class="confirm-row"><label>Plano</label><span style="font-size:13px;">${msgPlanoRestrito}</span></div>` : ''}
     ${planoVenceAntesDaData(currentUser) ? `<div class="confirm-row"><label>Plano</label><span style="font-size:13px;">Seu plano vence em ${formatDate(currentUser.planoVenceEm)}, antes desta data. O serviço será cobrado.</span></div>` : ''}
@@ -998,10 +1067,15 @@ function renderConfirm() {
         ? `<span style="font-size:16px;">Incluso no plano ${nomeDoPlano(currentUser.plano)}</span>`
         : `<span>R$${Number(sel.price).toFixed(2).replace('.', ',')}</span>`}
     </div>`;
+  const pixBox = document.getElementById('confirm-pix-box');
+  const pixHtml = montarBoxPix(forma);
+  pixBox.innerHTML = pixHtml;
+  pixBox.style.display = pixHtml ? 'block' : 'none';
 }
 
 function sendWhatsAppNotification() {
   const sel = state.selected;
+  const forma = formaPagamentoPorId(state.formaPagamento);
   const lines = [
     '*Novo Agendamento!*', '',
     '*Cliente:* ' + state.name,
@@ -1009,6 +1083,7 @@ function sendWhatsAppNotification() {
     '*Servico:* ' + sel.name,
     '*Data:* ' + formatDate(state.date),
     '*Horario:* ' + state.time,
+    '*Pagamento:* ' + (forma ? forma.nome : '-'),
     servicoCoberto(sel)
       ? '*Valor:* Incluso no plano ' + nomeDoPlano(currentUser.plano) + ' (sem cobrança)'
       : '*Valor:* R$' + Number(sel.price).toFixed(2).replace('.', ','),
@@ -1053,18 +1128,24 @@ window.submitBooking = async function() {
         : (limitePlanoAtingido() && PLAN_COVERAGE[currentUser.plano].includes(state.selected.id)
             ? 'Limite do plano atingido - cobrar' + (state.obs ? ' | ' + state.obs : '')
             : state.obs);
+      const formaSelecionada = formaPagamentoPorId(state.formaPagamento);
       await firebase.firestore().collection('agendamentos').add({
         tipo: 'servico', servico: state.selected.name, preco: precoCobrado(state.selected),
         cliente: state.name, telefone: key,
         data: state.date, horario: state.time, obs: obsFinal,
+        formaPagamento: formaSelecionada ? formaSelecionada.nome : '',
         status: 'agendado',
           criadoEm: firebase.firestore.FieldValue.serverTimestamp()
       });
       sendWhatsAppNotification();
       // (confirmação para o cliente desativada: o agendamento vai só para o WhatsApp da barbearia)
     }
+    const pixSucesso = document.getElementById('success-pix-box');
+    const pixHtmlSucesso = montarBoxPix(formaPagamentoPorId(state.formaPagamento));
+    pixSucesso.innerHTML = pixHtmlSucesso;
+    pixSucesso.style.display = pixHtmlSucesso ? 'block' : 'none';
     document.getElementById('success-modal').classList.add('open');
-    state = { selected: null, name: '', phone: '', date: '', time: '', obs: '' };
+    state = { selected: null, name: '', phone: '', date: '', time: '', obs: '', formaPagamento: null };
     window.state = state;
     const _now = new Date(); calAno = _now.getFullYear(); calMes = _now.getMonth();
     ['client-name','client-phone','pref-date','obs'].forEach(id => {
@@ -1074,6 +1155,7 @@ window.submitBooking = async function() {
     document.getElementById('pref-time').disabled = true;
     const calWrap = document.getElementById('cal-wrap');
     if (calWrap) calWrap.innerHTML = '';
+    document.querySelectorAll('#pagamento-options-list .option-item').forEach(el => el.classList.remove('selected'));
     renderServiceOptions();
     showStep(1);
     preencherDadosAgendamento();
@@ -1114,6 +1196,8 @@ document.addEventListener('DOMContentLoaded', () => {
   renderPlans();
   aplicarVisibilidadePlanos();
   renderServiceOptions();
+  renderFormasPagamentoOpcoes();
+  carregarFormasPagamento(); // busca as formas de pagamento salvas no painel admin (com QR Code do Pix)
   carregarPrecosServicos(); // atualiza os preços com o que foi salvo no painel admin
   carregarAjustesRemotos().then(mudou => { if (mudou) aplicarAjustesNoSite(); }); // nome, logo, WhatsApp e planos do painel
   initSlideshow(); // seguro: retorna cedo se não houver slider no HTML
