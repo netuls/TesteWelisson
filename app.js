@@ -1079,11 +1079,24 @@ window.selectService = function(id) {
   setTimeout(() => {
     showStep(2);
     preencherDadosAgendamento();
+    atualizarVisibilidadePagamento(); // esconde a forma de pagamento se o serviço já está incluso no plano
     const now = new Date();
     if (!calAno) { calAno = now.getFullYear(); calMes = now.getMonth(); }
     carregarConfigCalendario().then(() => renderCalendario());
   }, 180);
 };
+
+// Esconde a forma de pagamento quando o serviço é (ou parece ser, antes de saber a data) coberto pelo plano do cliente
+function atualizarVisibilidadePagamento() {
+  const grupo = document.getElementById('pagamento-form-group');
+  if (!grupo || !state.selected) return;
+  const coberto = servicoCoberto(state.selected);
+  grupo.style.display = coberto ? 'none' : '';
+  if (coberto) {
+    state.formaPagamento = null;
+    document.querySelectorAll('#pagamento-options-list .option-item').forEach(el => el.classList.remove('selected'));
+  }
+}
 
 window.goToConfirm = async function() {
   if (!currentUser) {
@@ -1095,13 +1108,18 @@ window.goToConfirm = async function() {
   const phone = document.getElementById('client-phone').value.trim();
   const date  = state.date || document.getElementById('pref-date').value;
   const time  = document.getElementById('pref-time').value;
-  if (!name || !phone || !date || !time || !state.formaPagamento) {
-    alert('Por favor, preencha todos os campos obrigatórios (*), incluindo a forma de pagamento.');
+  if (!name || !phone || !date || !time) {
+    alert('Por favor, preencha todos os campos obrigatórios (*).');
     return;
   }
   state.name = name; state.phone = phone; state.date = date; state.time = time;
   state.obs = document.getElementById('obs').value.trim();
   state.planoUso = await checarUsoPlano(date); // limite de uso do plano (ex.: Simples = 2x no mês)
+  atualizarVisibilidadePagamento(); // agora já dá pra saber com certeza se o serviço será cobrado ou não
+  if (!servicoCoberto(state.selected) && !state.formaPagamento) {
+    alert('Esse atendimento será cobrado (fora do plano ou limite do mês atingido) — escolha a forma de pagamento antes de continuar.');
+    return;
+  }
   renderConfirm();
   showStep(3);
 };
@@ -1126,7 +1144,7 @@ function renderConfirm() {
     <div class="confirm-row"><label>WhatsApp</label><span>${state.phone}</span></div>
     <div class="confirm-row"><label>Data</label><span>${formatDate(state.date)}</span></div>
     <div class="confirm-row"><label>Horário</label><span>${state.time}</span></div>
-    <div class="confirm-row"><label>Pagamento</label><span>${forma ? forma.nome : ''}</span></div>
+    ${forma ? `<div class="confirm-row"><label>Pagamento</label><span>${forma.nome}</span></div>` : ''}
     ${state.obs ? `<div class="confirm-row"><label>Obs.</label><span>${state.obs}</span></div>` : ''}
     ${planoRestrito ? `<div class="confirm-row"><label>Plano</label><span style="font-size:13px;">${msgPlanoRestrito}</span></div>` : ''}
     ${planoVenceAntesDaData(currentUser) ? `<div class="confirm-row"><label>Plano</label><span style="font-size:13px;">Seu plano vence em ${formatDate(currentUser.planoVenceEm)}, antes desta data. O serviço será cobrado.</span></div>` : ''}
@@ -1149,7 +1167,7 @@ function sendWhatsAppNotification() {
     '*Servico:* ' + sel.name,
     '*Data:* ' + formatDate(state.date),
     '*Horario:* ' + state.time,
-    '*Pagamento:* ' + (forma ? forma.nome : '-'),
+    '*Pagamento:* ' + (forma ? forma.nome : 'Incluso no plano'),
     servicoCoberto(sel)
       ? '*Valor:* Incluso no plano ' + nomeDoPlano(currentUser.plano) + ' (sem cobrança)'
       : '*Valor:* R$' + Number(sel.price).toFixed(2).replace('.', ','),
@@ -1199,7 +1217,7 @@ window.submitBooking = async function() {
         tipo: 'servico', servico: state.selected.name, preco: precoCobrado(state.selected),
         cliente: state.name, telefone: key,
         data: state.date, horario: state.time, obs: obsFinal,
-        formaPagamento: formaSelecionada ? formaSelecionada.nome : '',
+        formaPagamento: formaSelecionada ? formaSelecionada.nome : 'Incluso no plano',
         status: 'agendado',
           criadoEm: firebase.firestore.FieldValue.serverTimestamp()
       });
