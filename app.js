@@ -260,7 +260,9 @@ function renderizarQRPix(containerId, texto) {
   if (!el || typeof QRCode === 'undefined') return;
   el.innerHTML = '';
   try {
-    new QRCode(el, { text: texto, width: 180, height: 180, colorDark: '#000000', colorLight: '#ffffff' });
+    new QRCode(el, { text: texto, width: 300, height: 300, colorDark: '#000000', colorLight: '#ffffff', correctLevel: (typeof QRCode !== 'undefined' && QRCode.CorrectLevel) ? QRCode.CorrectLevel.M : undefined });
+    const canvasOuImg = el.querySelector('canvas, img');
+    if (canvasOuImg) { canvasOuImg.style.width = '100%'; canvasOuImg.style.height = '100%'; canvasOuImg.style.imageRendering = 'pixelated'; }
   } catch (e) { console.warn('Não foi possível desenhar o QR Code do Pix', e); }
 }
 
@@ -280,7 +282,8 @@ function exibirBoxPix(container, forma, valor, sufixoId) {
       <p style="font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:2px;color:#EBC531;text-transform:uppercase;margin:0 0 4px;">Pague com Pix</p>
       <p style="font-family:'Roboto',sans-serif;font-size:13px;color:#94A4CC;margin:0 0 12px;">Valor: R$${Number(valor).toFixed(2).replace('.', ',')}</p>
       ${dinamico
-        ? `<div id="${qrId}" style="width:180px;height:180px;background:#fff;border-radius:8px;padding:6px;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;"></div>
+        ? `<div id="${qrId}" style="width:332px;max-width:100%;aspect-ratio:1;background:#fff;border-radius:8px;padding:16px;margin:0 auto 12px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;"></div>
+           <div style="font-family:'Roboto',sans-serif;font-size:10px;color:#5E6E9E;margin:-8px 0 12px;">Se a câmera não ler, use o botão abaixo (cola direto no app do banco).</div>
            <div style="display:flex;align-items:center;gap:8px;justify-content:center;flex-wrap:wrap;">
              <button type="button" onclick="copiarChavePix('${payload}')"
                style="background:#1B3168;border:1px solid #2C4E9E;color:#F1EAD6;padding:8px 14px;font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border-radius:4px;">Copiar Pix Copia e Cola</button>
