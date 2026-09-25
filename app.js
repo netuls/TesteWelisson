@@ -161,7 +161,7 @@ window.state = state;
 let FORMAS_PAGAMENTO = [
   { id: 'dinheiro', nome: 'Dinheiro', tipo: 'outro', ativo: true },
   { id: 'cartao',   nome: 'Cartão',   tipo: 'outro', ativo: true },
-  { id: 'pix',      nome: 'Pix',      tipo: 'pix',   ativo: true, pixChave: '', pixQr: '' },
+  { id: 'pix',      nome: 'Pix',      tipo: 'pix',   ativo: true, pixChave: '', pixNome: '', pixCidade: '', pixQr: '' },
 ];
 
 async function carregarFormasPagamento() {
@@ -203,23 +203,91 @@ window.selecionarPagamento = function(id) {
 };
 
 function copiarChavePix(texto) {
-  navigator.clipboard.writeText(texto).then(() => showToast('Chave Pix copiada!')).catch(() => {});
+  navigator.clipboard.writeText(texto).then(() => showToast('Copiado!')).catch(() => {});
 }
 
-// Monta o bloco com QR Code + chave Pix (reaproveitado na confirmação e na tela de sucesso)
-function montarBoxPix(forma) {
-  if (!forma || forma.tipo !== 'pix' || (!forma.pixQr && !forma.pixChave)) return '';
-  return `
+// ── Pix dinâmico (BR Code / EMV QR Code do Banco Central) ──────────
+// Monta o "Pix Copia e Cola" já com o valor do serviço embutido, sem precisar de nenhum gateway de pagamento.
+function tlvPix(id, valor) {
+  const len = String(valor.length).padStart(2, '0');
+  return id + len + valor;
+}
+function crc16Pix(str) {
+  let crc = 0xFFFF;
+  for (let i = 0; i < str.length; i++) {
+    crc ^= (str.charCodeAt(i) << 8);
+    for (let j = 0; j < 8; j++) crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+  }
+  return crc.toString(16).toUpperCase().padStart(4, '0');
+}
+// Remove acentos/símbolos e corta no tamanho máximo exigido pelo padrão (nome: 25, cidade: 15)
+function limparTextoPix(s, max) {
+  const limpo = String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9 ]/g, '').trim().toUpperCase().slice(0, max);
+  return limpo || 'NA';
+}
+function gerarPayloadPix({ chave, nome, cidade, valor, txid }) {
+  const merchantAccountInfo = tlvPix('26', tlvPix('00', 'br.gov.bcb.pix') + tlvPix('01', String(chave).trim()));
+  const txidLimpo = String(txid || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 25) || '***';
+  let payload =
+    tlvPix('00', '01') +                                   // Payload Format Indicator
+    tlvPix('01', '12') +                                   // Point of Initiation (uso único, com valor)
+    merchantAccountInfo +
+    tlvPix('52', '0000') +                                 // Merchant Category Code
+    tlvPix('53', '986') +                                  // Moeda: Real (BRL)
+    (valor > 0 ? tlvPix('54', Number(valor).toFixed(2)) : '') + // Valor da transação
+    tlvPix('58', 'BR') +                                   // País
+    tlvPix('59', limparTextoPix(nome, 25)) +                // Nome do recebedor
+    tlvPix('60', limparTextoPix(cidade, 15)) +              // Cidade do recebedor
+    tlvPix('62', tlvPix('05', txidLimpo)) +                 // Identificador da transação
+    '6304';
+  return payload + crc16Pix(payload);
+}
+
+// Renderiza o QR Code (via QRCode.js) dentro do container já inserido no DOM
+function renderizarQRPix(containerId, texto) {
+  const el = document.getElementById(containerId);
+  if (!el || typeof QRCode === 'undefined') return;
+  el.innerHTML = '';
+  try {
+    new QRCode(el, { text: texto, width: 180, height: 180, colorDark: '#000000', colorLight: '#ffffff' });
+  } catch (e) { console.warn('Não foi possível desenhar o QR Code do Pix', e); }
+}
+
+// Mostra o bloco de pagamento Pix dentro do elemento indicado, com o valor certo do serviço.
+// Prioridade: se a chave + nome + cidade estiverem configurados, gera o QR na hora (já com o valor).
+// Sem esses três dados, cai para a imagem de QR Code enviada no painel (sem valor embutido).
+function exibirBoxPix(container, forma, valor, sufixoId) {
+  if (!container) return;
+  if (!forma || forma.tipo !== 'pix' || valor <= 0 || (!forma.pixQr && !forma.pixChave)) {
+    container.innerHTML = ''; container.style.display = 'none'; return;
+  }
+  const dinamico = forma.pixChave && forma.pixNome && forma.pixCidade;
+  const qrId = 'pix-qr-' + sufixoId;
+  const payload = dinamico ? gerarPayloadPix({ chave: forma.pixChave, nome: forma.pixNome, cidade: forma.pixCidade, valor, txid: 'AG' + Date.now().toString(36).toUpperCase() }) : '';
+  container.innerHTML = `
     <div style="margin-top:16px;padding:18px;background:#0C1838;border:1px solid #16295C;border-radius:8px;text-align:center;">
-      <p style="font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:2px;color:#EBC531;text-transform:uppercase;margin:0 0 12px;">Pague com Pix</p>
-      ${forma.pixQr ? `<img src="${forma.pixQr}" alt="QR Code Pix" style="width:180px;height:180px;object-fit:contain;background:#fff;border-radius:8px;padding:6px;margin-bottom:12px;">` : ''}
-      ${forma.pixChave ? `
-        <div style="display:flex;align-items:center;gap:8px;justify-content:center;flex-wrap:wrap;">
-          <code style="background:#0F1F45;padding:8px 12px;border-radius:6px;color:#F1EAD6;font-size:13px;word-break:break-all;">${forma.pixChave}</code>
-          <button type="button" onclick="copiarChavePix('${forma.pixChave.replace(/'/g, "\\'")}')"
-            style="background:#1B3168;border:1px solid #2C4E9E;color:#F1EAD6;padding:8px 14px;font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border-radius:4px;">Copiar</button>
-        </div>` : ''}
+      <p style="font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:2px;color:#EBC531;text-transform:uppercase;margin:0 0 4px;">Pague com Pix</p>
+      <p style="font-family:'Roboto',sans-serif;font-size:13px;color:#94A4CC;margin:0 0 12px;">Valor: R$${Number(valor).toFixed(2).replace('.', ',')}</p>
+      ${dinamico
+        ? `<div id="${qrId}" style="width:180px;height:180px;background:#fff;border-radius:8px;padding:6px;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;"></div>
+           <div style="display:flex;align-items:center;gap:8px;justify-content:center;flex-wrap:wrap;">
+             <button type="button" onclick="copiarChavePix('${payload}')"
+               style="background:#1B3168;border:1px solid #2C4E9E;color:#F1EAD6;padding:8px 14px;font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border-radius:4px;">Copiar Pix Copia e Cola</button>
+           </div>
+           <p style="font-family:'Roboto',sans-serif;font-size:11px;color:#5E6E9E;margin:10px 0 0;">Escaneie ou copie o código — o valor já vem preenchido.</p>`
+        : `${forma.pixQr ? `<img src="${forma.pixQr}" alt="QR Code Pix" style="width:180px;height:180px;object-fit:contain;background:#fff;border-radius:8px;padding:6px;margin-bottom:12px;">` : ''}
+           ${forma.pixChave ? `
+           <div style="display:flex;align-items:center;gap:8px;justify-content:center;flex-wrap:wrap;">
+             <code style="background:#0F1F45;padding:8px 12px;border-radius:6px;color:#F1EAD6;font-size:13px;word-break:break-all;">${forma.pixChave}</code>
+             <button type="button" onclick="copiarChavePix('${forma.pixChave.replace(/'/g, "\\'")}')"
+               style="background:#1B3168;border:1px solid #2C4E9E;color:#F1EAD6;padding:8px 14px;font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border-radius:4px;">Copiar chave</button>
+           </div>
+           <p style="font-family:'Roboto',sans-serif;font-size:11px;color:#5E6E9E;margin:10px 0 0;">Confira o valor certinho antes de pagar.</p>` : ''}`
+      }
     </div>`;
+  container.style.display = 'block';
+  if (dinamico) renderizarQRPix(qrId, payload);
 }
 let currentUser = null; // { nome, telefone } — preenchido após login
 
@@ -1068,9 +1136,7 @@ function renderConfirm() {
         : `<span>R$${Number(sel.price).toFixed(2).replace('.', ',')}</span>`}
     </div>`;
   const pixBox = document.getElementById('confirm-pix-box');
-  const pixHtml = montarBoxPix(forma);
-  pixBox.innerHTML = pixHtml;
-  pixBox.style.display = pixHtml ? 'block' : 'none';
+  exibirBoxPix(pixBox, forma, precoCobrado(sel), 'confirm');
 }
 
 function sendWhatsAppNotification() {
@@ -1141,9 +1207,7 @@ window.submitBooking = async function() {
       // (confirmação para o cliente desativada: o agendamento vai só para o WhatsApp da barbearia)
     }
     const pixSucesso = document.getElementById('success-pix-box');
-    const pixHtmlSucesso = montarBoxPix(formaPagamentoPorId(state.formaPagamento));
-    pixSucesso.innerHTML = pixHtmlSucesso;
-    pixSucesso.style.display = pixHtmlSucesso ? 'block' : 'none';
+    exibirBoxPix(pixSucesso, formaPagamentoPorId(state.formaPagamento), precoCobrado(state.selected), 'sucesso');
     document.getElementById('success-modal').classList.add('open');
     state = { selected: null, name: '', phone: '', date: '', time: '', obs: '', formaPagamento: null };
     window.state = state;
