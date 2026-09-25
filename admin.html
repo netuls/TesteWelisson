@@ -476,6 +476,18 @@
             </div>
           </div>
 
+          <!-- FORMAS DE PAGAMENTO -->
+          <div class="aj-card">
+            <h3 class="aj-titulo">Formas de Pagamento</h3>
+            <p class="aj-desc">Escolha as formas de pagamento que o cliente vê ao agendar. Para o Pix, informe a chave e/ou envie a imagem do QR Code (a mesma que seu banco gera) — ela aparece pro cliente pagar assim que ele confirmar o agendamento.</p>
+            <div id="pagamento-lista" style="display:flex;flex-direction:column;gap:14px;margin-bottom:14px;"></div>
+            <button type="button" class="aj-btn2" onclick="adicionarFormaPagamento()">+ Adicionar forma de pagamento</button>
+            <div class="aj-acoes" style="margin-top:16px;">
+              <button class="aj-btn" onclick="salvarFormasPagamento()">Salvar formas de pagamento</button>
+              <span id="aj-pagamento-status" style="font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:1px;color:#94A4CC;"></span>
+            </div>
+          </div>
+
           <div class="aj-card">
           <div style="margin-bottom:24px;">
             <h3 style="font-family:'Oswald',sans-serif;letter-spacing:2px;text-transform:uppercase;color:#F1EAD6;font-size:16px;margin-bottom:6px;">Serviços</h3>
