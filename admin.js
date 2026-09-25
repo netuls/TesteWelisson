@@ -129,6 +129,7 @@ function initAdmin() {
   loadAgendamentos();
   preencherOpcoesPlano();
   carregarPrecosServicos();
+  carregarFormasPagamento();
   verificarAniversariosGlobal();
   verificarPlanosGlobal();
   carregarClientesFirestore().then(() => { try { renderDashboard(); } catch (e) {} });
@@ -144,6 +145,18 @@ let _logoPendente;      // undefined = sem mudança; '' = remover a logo; 'data:
 let _planosEdit = [];   // rascunho dos planos que está sendo editado na tela
 let _servicosEdit = []; // rascunho dos serviços (com adições/remoções/ordem) que está sendo editado na tela
 const LOGO_MAX_CHARS = 600000;   // limite de tamanho da logo guardada (~450 KB de imagem)
+
+// ── Formas de pagamento (aba Ajustes) ─────────────
+// Gravadas em config/pagamento: { formas: [{id,nome,tipo,ativo,pixChave,pixQr}], atualizadoEm }
+// tipo 'pix' libera os campos de chave e QR Code; qualquer outro tipo ('outro') é só um nome (Dinheiro, Cartão...).
+const FORMAS_PAGAMENTO_PADRAO = [
+  { id: 'dinheiro', nome: 'Dinheiro', tipo: 'outro', ativo: true },
+  { id: 'cartao',   nome: 'Cartão',   tipo: 'outro', ativo: true },
+  { id: 'pix',      nome: 'Pix',      tipo: 'pix',   ativo: true, pixChave: '', pixQr: '' },
+];
+let FORMAS_PAGAMENTO = FORMAS_PAGAMENTO_PADRAO.map(f => ({ ...f }));
+let _pagamentoEdit = []; // rascunho em edição na tela
+const QR_MAX_CHARS = 600000;   // mesmo limite usado na logo
 
 function ajStatus(id, texto, cor) {
   const el = document.getElementById(id);
@@ -766,6 +779,177 @@ async function salvarServicos() {
   } finally { btn.disabled = false; }
 }
 
+// ── Formas de pagamento ────────────────────────────
+async function carregarFormasPagamento() {
+  try {
+    const doc = await db.collection('config').doc('pagamento').get();
+    if (doc.exists) {
+      const dados = doc.data() || {};
+      if (Array.isArray(dados.formas) && dados.formas.length) {
+        FORMAS_PAGAMENTO = dados.formas.map(f => ({
+          id: String(f.id || ('fp' + Date.now().toString(36))),
+          nome: String(f.nome || ''),
+          tipo: f.tipo === 'pix' ? 'pix' : 'outro',
+          ativo: f.ativo !== false,
+          pixChave: f.pixChave || '',
+          pixQr: f.pixQr || '',
+        }));
+      }
+    }
+  } catch (e) { console.warn('Não foi possível carregar as formas de pagamento', e); }
+  if (document.getElementById('tab-servicos') && document.getElementById('tab-servicos').classList.contains('active')) {
+    _pagamentoEdit = JSON.parse(JSON.stringify(FORMAS_PAGAMENTO));
+    renderFormasPagamentoEditor();
+  }
+}
+
+function renderFormasPagamentoEditor() {
+  const el = document.getElementById('pagamento-lista');
+  if (!el) return;
+  if (!_pagamentoEdit.length) {
+    el.innerHTML = '<p style="color:#5E6E9E;font-size:13px;font-family:\'Roboto\',sans-serif;">Nenhuma forma de pagamento cadastrada. Clique em "Adicionar forma de pagamento".</p>';
+    document.getElementById('aj-pagamento-status').textContent = '';
+    return;
+  }
+  el.innerHTML = _pagamentoEdit.map((f, i) => {
+    const qrPreview = f.pixQr
+      ? '<img src="' + f.pixQr + '" alt="QR Code Pix" style="width:96px;height:96px;object-fit:contain;background:#fff;border-radius:6px;padding:4px;">'
+      : '<div style="width:96px;height:96px;border:1px dashed #233F80;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#5E6E9E;font-size:11px;text-align:center;padding:4px;">Sem QR Code</div>';
+    return '<div class="pag-row" data-idx="' + i + '" style="background:#0C1838;border:1px solid #122452;border-radius:6px;padding:14px 16px;">' +
+      '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">' +
+        '<div style="flex:1;min-width:160px;">' +
+          '<input class="aj-in pag-nome" value="' + escPlano(f.nome) + '" placeholder="Ex.: Pix, Dinheiro, Cartão" ' +
+            'oninput="atualizarCampoPagamento(' + i + ',\'nome\',this.value)" ' +
+            'style="width:100%;background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:8px 10px;color:#F1EAD6;font-family:\'Oswald\',sans-serif;font-size:14px;letter-spacing:.5px;outline:none;box-sizing:border-box;">' +
+        '</div>' +
+        '<select class="pag-tipo" onchange="atualizarCampoPagamento(' + i + ',\'tipo\',this.value)" ' +
+          'style="background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:9px 10px;color:#F1EAD6;font-family:\'Roboto\',sans-serif;font-size:13px;outline:none;cursor:pointer;">' +
+          '<option value="outro"' + (f.tipo !== 'pix' ? ' selected' : '') + '>Comum (sem QR Code)</option>' +
+          '<option value="pix"' + (f.tipo === 'pix' ? ' selected' : '') + '>Pix (com QR Code)</option>' +
+        '</select>' +
+        '<label class="aj-check" style="font-size:13px;color:#94A4CC;white-space:nowrap;">' +
+          '<input type="checkbox" ' + (f.ativo ? 'checked' : '') + ' onchange="atualizarCampoPagamento(' + i + ',\'ativo\',this.checked)"> Ativa' +
+        '</label>' +
+        '<button type="button" onclick="removerFormaPagamento(' + i + ')" title="Remover" ' +
+          'style="background:transparent;border:1px solid rgba(200,60,60,.4);color:#e05555;width:34px;height:34px;border-radius:6px;cursor:pointer;font-size:15px;line-height:1;flex-shrink:0;">✕</button>' +
+      '</div>' +
+      (f.tipo === 'pix'
+        ? '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-top:14px;padding-top:14px;border-top:1px solid #16295C;">' +
+            '<div style="flex:1;min-width:200px;">' +
+              '<span class="aj-lbl">Chave Pix (copia e cola)</span>' +
+              '<input class="aj-in pag-chave" value="' + escPlano(f.pixChave || '') + '" placeholder="CPF, e-mail, telefone ou chave aleatória" ' +
+                'oninput="atualizarCampoPagamento(' + i + ',\'pixChave\',this.value)" ' +
+                'style="width:100%;background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:8px 10px;color:#F1EAD6;font-family:\'Roboto\',sans-serif;font-size:14px;outline:none;box-sizing:border-box;margin-top:4px;">' +
+              '<span style="color:#5E6E9E;font-size:12px;font-family:\'Roboto\',sans-serif;display:block;margin-top:6px;">O cliente vê um botão para copiar essa chave na hora de pagar.</span>' +
+            '</div>' +
+            '<div>' +
+              '<span class="aj-lbl">QR Code para pagar</span>' +
+              '<div style="display:flex;align-items:center;gap:12px;margin-top:4px;">' +
+                qrPreview +
+                '<div style="display:flex;flex-direction:column;gap:8px;">' +
+                  '<button type="button" class="aj-btn2" onclick="document.getElementById(\'pag-qr-file-' + i + '\').click()">Escolher imagem</button>' +
+                  (f.pixQr ? '<button type="button" class="aj-btn2" onclick="atualizarCampoPagamento(' + i + ',\'pixQr\',\'\')">Remover QR Code</button>' : '') +
+                  '<input type="file" id="pag-qr-file-' + i + '" accept="image/*" style="display:none" onchange="escolherQrPix(this,' + i + ')">' +
+                '</div>' +
+              '</div>' +
+              '<span style="color:#5E6E9E;font-size:12px;font-family:\'Roboto\',sans-serif;display:block;margin-top:6px;max-width:260px;">Tire um print do QR Code gerado no app do seu banco e envie aqui.</span>' +
+            '</div>' +
+          '</div>'
+        : '') +
+    '</div>';
+  }).join('');
+  document.getElementById('aj-pagamento-status').textContent = '';
+}
+
+function atualizarCampoPagamento(i, campo, valor) {
+  if (!_pagamentoEdit[i]) return;
+  _pagamentoEdit[i][campo] = valor;
+  if (campo === 'tipo') renderFormasPagamentoEditor(); // mostra/esconde os campos do Pix
+}
+
+function escolherQrPix(input, i) {
+  const arquivo = input.files && input.files[0];
+  input.value = '';
+  if (!arquivo || !_pagamentoEdit[i]) return;
+  if (!/^image\//.test(arquivo.type)) { ajStatus('aj-pagamento-status', 'Escolha um arquivo de imagem (PNG ou JPG).', '#e05555'); return; }
+  const leitor = new FileReader();
+  leitor.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      let url = '';
+      for (const max of [600, 450, 320]) {
+        const esc = Math.min(1, max / Math.max(img.width, img.height));
+        const cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(img.width * esc));
+        cv.height = Math.max(1, Math.round(img.height * esc));
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        url = cv.toDataURL('image/png');
+        if (url.length < QR_MAX_CHARS) break;
+      }
+      if (url.length >= QR_MAX_CHARS) { ajStatus('aj-pagamento-status', 'Imagem muito pesada. Tente um print mais simples.', '#e05555'); return; }
+      _pagamentoEdit[i].pixQr = url;
+      renderFormasPagamentoEditor();
+      ajStatus('aj-pagamento-status', 'QR Code escolhido. Clique em Salvar para aplicar.');
+    };
+    img.onerror = () => ajStatus('aj-pagamento-status', 'Não consegui abrir essa imagem.', '#e05555');
+    img.src = leitor.result;
+  };
+  leitor.readAsDataURL(arquivo);
+}
+
+function removerFormaPagamento(i) {
+  const f = _pagamentoEdit[i];
+  if (!f) return;
+  if (!confirm('Remover a forma de pagamento "' + (f.nome || 'sem nome') + '"? Só vale depois de clicar em Salvar.')) return;
+  _pagamentoEdit.splice(i, 1);
+  renderFormasPagamentoEditor();
+}
+
+function adicionarFormaPagamento() {
+  _pagamentoEdit.push({ id: 'fp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), nome: 'Nova forma', tipo: 'outro', ativo: true, pixChave: '', pixQr: '' });
+  renderFormasPagamentoEditor();
+  const linhas = document.querySelectorAll('#pagamento-lista .pag-row');
+  if (linhas.length) linhas[linhas.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const ultimoNome = document.querySelector('#pagamento-lista .pag-row:last-child .pag-nome');
+  if (ultimoNome) { ultimoNome.focus(); ultimoNome.select(); }
+}
+
+async function salvarFormasPagamento() {
+  const st = document.getElementById('aj-pagamento-status');
+  if (!_pagamentoEdit.length) { st.style.color = '#e05555'; st.textContent = 'Adicione pelo menos uma forma de pagamento.'; return; }
+  let invalido = false;
+  const idsVistos = {};
+  const linhas = [...document.querySelectorAll('#pagamento-lista .pag-row')];
+  linhas.forEach((row, i) => {
+    const nomeEl = row.querySelector('.pag-nome');
+    if (!nomeEl.value.trim()) { invalido = true; nomeEl.style.borderColor = '#e05555'; } else { nomeEl.style.borderColor = '#233F80'; }
+  });
+  if (invalido) { st.style.color = '#e05555'; st.textContent = 'Toda forma de pagamento precisa de um nome.'; return; }
+  const formas = _pagamentoEdit.map(f => {
+    let id = f.id || ('fp' + Date.now().toString(36));
+    if (idsVistos[id]) id = id + '_' + Math.random().toString(36).slice(2, 5);
+    idsVistos[id] = true;
+    const out = { id, nome: f.nome.trim(), tipo: f.tipo === 'pix' ? 'pix' : 'outro', ativo: f.ativo !== false };
+    if (out.tipo === 'pix') { out.pixChave = (f.pixChave || '').trim(); out.pixQr = f.pixQr || ''; }
+    return out;
+  });
+  st.style.color = '#94A4CC'; st.textContent = 'Salvando...';
+  try {
+    await db.collection('config').doc('pagamento').set({
+      formas,
+      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    FORMAS_PAGAMENTO = formas.map(f => ({ ...f }));
+    _pagamentoEdit = JSON.parse(JSON.stringify(FORMAS_PAGAMENTO));
+    renderFormasPagamentoEditor();
+    st.style.color = '#4caf50'; st.textContent = 'Formas de pagamento salvas! Já valem para novos agendamentos.';
+    showToast('Formas de pagamento atualizadas.');
+  } catch (e) {
+    console.warn(e);
+    st.style.color = '#e05555'; st.textContent = 'Erro ao salvar: ' + (e.message || e.code || e);
+  }
+}
+
 // ── Tabs ─────────────────────────────────────────
 function showTab(tab, el) {
   // Injeta o tab de clientes do template na primeira vez
@@ -782,7 +966,7 @@ function showTab(tab, el) {
   const titles = { dashboard: 'Dashboard', agendamentos: 'Agendamentos', horarios: 'Horarios de Atendimento', servicos: 'Ajustes', datas: 'Datas Especiais', clientes: 'Clientes' };
   document.getElementById('page-title').textContent = titles[tab] || tab;
   if (tab === 'horarios') carregarHorarios();
-  if (tab === 'servicos') { _servicosEdit = JSON.parse(JSON.stringify(SERVICES)); renderServicosEditor(); renderAjustes(); }
+  if (tab === 'servicos') { _servicosEdit = JSON.parse(JSON.stringify(SERVICES)); renderServicosEditor(); _pagamentoEdit = JSON.parse(JSON.stringify(FORMAS_PAGAMENTO)); renderFormasPagamentoEditor(); renderAjustes(); }
   if (tab === 'datas') carregarDatasEspeciais();
   if (tab === 'clientes') renderClientes();
   gerenciarFab(tab);
