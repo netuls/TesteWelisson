@@ -837,12 +837,13 @@ function renderFormasPagamentoEditor() {
       '</div>' +
       (f.tipo === 'pix'
         ? '<div style="margin-top:14px;padding-top:14px;border-top:1px solid #16295C;">' +
-            '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">' +
+            '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px;">' +
               '<div style="flex:1;min-width:200px;">' +
                 '<span class="aj-lbl">Chave Pix (copia e cola)</span>' +
                 '<input class="aj-in pag-chave" value="' + escPlano(f.pixChave || '') + '" placeholder="CPF, e-mail, telefone ou chave aleatória" ' +
                   'oninput="atualizarCampoPagamento(' + i + ',\'pixChave\',this.value)" ' +
                   'style="width:100%;background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:8px 10px;color:#F1EAD6;font-family:\'Roboto\',sans-serif;font-size:14px;outline:none;box-sizing:border-box;margin-top:4px;">' +
+                '<span style="color:#5E6E9E;font-size:11px;font-family:\'Roboto\',sans-serif;display:block;margin-top:4px;">Digite sem parênteses/traço. CPF: só números. Telefone: com DDD (o "+55" é colocado sozinho).</span>' +
               '</div>' +
               '<div style="flex:1;min-width:160px;">' +
                 '<span class="aj-lbl">Nome do recebedor</span>' +
