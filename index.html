@@ -214,6 +214,10 @@
             </select>
           </div>
           <div class="form-group">
+            <label>Forma de Pagamento *</label>
+            <div class="options-list" id="pagamento-options-list"></div>
+          </div>
+          <div class="form-group">
             <label>Observações</label>
             <textarea id="obs" placeholder="Algo que queira nos informar..." rows="3"></textarea>
           </div>
@@ -227,6 +231,7 @@
         <div class="form-step" id="step-3">
           <h3>Confirmar Agendamento</h3>
           <div class="confirm-summary" id="confirm-summary"></div>
+          <div id="confirm-pix-box" style="display:none;"></div>
           <div class="form-row">
             <button class="btn-back" onclick="goBack(2)">← Voltar</button>
             <button class="btn-confirm" onclick="submitBooking()">✓ Confirmar</button>
@@ -310,6 +315,7 @@
       <div class="modal-icon">✓</div>
       <h3>Agendamento Enviado!</h3>
       <p>Seu pedido foi registrado com sucesso.</p>
+      <div id="success-pix-box" style="display:none;"></div>
       <button onclick="closeModal()">Fechar</button>
     </div>
   </div>
