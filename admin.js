@@ -147,12 +147,12 @@ let _servicosEdit = []; // rascunho dos serviços (com adições/remoções/orde
 const LOGO_MAX_CHARS = 600000;   // limite de tamanho da logo guardada (~450 KB de imagem)
 
 // ── Formas de pagamento (aba Ajustes) ─────────────
-// Gravadas em config/pagamento: { formas: [{id,nome,tipo,ativo,pixChave,pixQr}], atualizadoEm }
+// Gravadas em config/pagamento: { formas: [{id,nome,tipo,ativo,pixChave,pixNome,pixCidade,pixQr}], atualizadoEm }
 // tipo 'pix' libera os campos de chave e QR Code; qualquer outro tipo ('outro') é só um nome (Dinheiro, Cartão...).
 const FORMAS_PAGAMENTO_PADRAO = [
   { id: 'dinheiro', nome: 'Dinheiro', tipo: 'outro', ativo: true },
   { id: 'cartao',   nome: 'Cartão',   tipo: 'outro', ativo: true },
-  { id: 'pix',      nome: 'Pix',      tipo: 'pix',   ativo: true, pixChave: '', pixQr: '' },
+  { id: 'pix',      nome: 'Pix',      tipo: 'pix',   ativo: true, pixChave: '', pixNome: '', pixCidade: '', pixQr: '' },
 ];
 let FORMAS_PAGAMENTO = FORMAS_PAGAMENTO_PADRAO.map(f => ({ ...f }));
 let _pagamentoEdit = []; // rascunho em edição na tela
@@ -792,6 +792,8 @@ async function carregarFormasPagamento() {
           tipo: f.tipo === 'pix' ? 'pix' : 'outro',
           ativo: f.ativo !== false,
           pixChave: f.pixChave || '',
+          pixNome: f.pixNome || '',
+          pixCidade: f.pixCidade || '',
           pixQr: f.pixQr || '',
         }));
       }
@@ -834,16 +836,32 @@ function renderFormasPagamentoEditor() {
           'style="background:transparent;border:1px solid rgba(200,60,60,.4);color:#e05555;width:34px;height:34px;border-radius:6px;cursor:pointer;font-size:15px;line-height:1;flex-shrink:0;">✕</button>' +
       '</div>' +
       (f.tipo === 'pix'
-        ? '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-top:14px;padding-top:14px;border-top:1px solid #16295C;">' +
-            '<div style="flex:1;min-width:200px;">' +
-              '<span class="aj-lbl">Chave Pix (copia e cola)</span>' +
-              '<input class="aj-in pag-chave" value="' + escPlano(f.pixChave || '') + '" placeholder="CPF, e-mail, telefone ou chave aleatória" ' +
-                'oninput="atualizarCampoPagamento(' + i + ',\'pixChave\',this.value)" ' +
-                'style="width:100%;background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:8px 10px;color:#F1EAD6;font-family:\'Roboto\',sans-serif;font-size:14px;outline:none;box-sizing:border-box;margin-top:4px;">' +
-              '<span style="color:#5E6E9E;font-size:12px;font-family:\'Roboto\',sans-serif;display:block;margin-top:6px;">O cliente vê um botão para copiar essa chave na hora de pagar.</span>' +
+        ? '<div style="margin-top:14px;padding-top:14px;border-top:1px solid #16295C;">' +
+            '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">' +
+              '<div style="flex:1;min-width:200px;">' +
+                '<span class="aj-lbl">Chave Pix (copia e cola)</span>' +
+                '<input class="aj-in pag-chave" value="' + escPlano(f.pixChave || '') + '" placeholder="CPF, e-mail, telefone ou chave aleatória" ' +
+                  'oninput="atualizarCampoPagamento(' + i + ',\'pixChave\',this.value)" ' +
+                  'style="width:100%;background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:8px 10px;color:#F1EAD6;font-family:\'Roboto\',sans-serif;font-size:14px;outline:none;box-sizing:border-box;margin-top:4px;">' +
+              '</div>' +
+              '<div style="flex:1;min-width:160px;">' +
+                '<span class="aj-lbl">Nome do recebedor</span>' +
+                '<input class="aj-in pag-pixnome" value="' + escPlano(f.pixNome || '') + '" placeholder="Ex.: JOAO DA SILVA ou nome da barbearia" maxlength="25" ' +
+                  'oninput="atualizarCampoPagamento(' + i + ',\'pixNome\',this.value)" ' +
+                  'style="width:100%;background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:8px 10px;color:#F1EAD6;font-family:\'Roboto\',sans-serif;font-size:14px;outline:none;box-sizing:border-box;margin-top:4px;">' +
+              '</div>' +
+              '<div style="flex:1;min-width:140px;">' +
+                '<span class="aj-lbl">Cidade</span>' +
+                '<input class="aj-in pag-pixcidade" value="' + escPlano(f.pixCidade || '') + '" placeholder="Ex.: Fortaleza" maxlength="15" ' +
+                  'oninput="atualizarCampoPagamento(' + i + ',\'pixCidade\',this.value)" ' +
+                  'style="width:100%;background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:8px 10px;color:#F1EAD6;font-family:\'Roboto\',sans-serif;font-size:14px;outline:none;box-sizing:border-box;margin-top:4px;">' +
+              '</div>' +
             '</div>' +
+            (f.pixChave && f.pixNome && f.pixCidade
+              ? '<p style="color:#4caf50;font-size:12px;font-family:\'Roboto\',sans-serif;margin:0 0 14px;">✓ QR Code é gerado automaticamente, já com o valor de cada serviço.</p>'
+              : '<p style="color:#94A4CC;font-size:12px;font-family:\'Roboto\',sans-serif;margin:0 0 14px;">Preenchendo a chave, o nome e a cidade acima, o QR Code passa a ser gerado sozinho, sempre com o valor certo do serviço. Sem isso, vale a imagem de QR Code enviada abaixo (sem valor).</p>') +
             '<div>' +
-              '<span class="aj-lbl">QR Code para pagar</span>' +
+              '<span class="aj-lbl">QR Code enviado (reserva, sem valor)</span>' +
               '<div style="display:flex;align-items:center;gap:12px;margin-top:4px;">' +
                 qrPreview +
                 '<div style="display:flex;flex-direction:column;gap:8px;">' +
@@ -852,7 +870,7 @@ function renderFormasPagamentoEditor() {
                   '<input type="file" id="pag-qr-file-' + i + '" accept="image/*" style="display:none" onchange="escolherQrPix(this,' + i + ')">' +
                 '</div>' +
               '</div>' +
-              '<span style="color:#5E6E9E;font-size:12px;font-family:\'Roboto\',sans-serif;display:block;margin-top:6px;max-width:260px;">Tire um print do QR Code gerado no app do seu banco e envie aqui.</span>' +
+              '<span style="color:#5E6E9E;font-size:12px;font-family:\'Roboto\',sans-serif;display:block;margin-top:6px;max-width:320px;">Tire um print do QR Code gerado no app do seu banco e envie aqui, pra usar como reserva caso não preencha os 3 campos acima.</span>' +
             '</div>' +
           '</div>'
         : '') +
@@ -906,7 +924,7 @@ function removerFormaPagamento(i) {
 }
 
 function adicionarFormaPagamento() {
-  _pagamentoEdit.push({ id: 'fp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), nome: 'Nova forma', tipo: 'outro', ativo: true, pixChave: '', pixQr: '' });
+  _pagamentoEdit.push({ id: 'fp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), nome: 'Nova forma', tipo: 'outro', ativo: true, pixChave: '', pixNome: '', pixCidade: '', pixQr: '' });
   renderFormasPagamentoEditor();
   const linhas = document.querySelectorAll('#pagamento-lista .pag-row');
   if (linhas.length) linhas[linhas.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -930,7 +948,12 @@ async function salvarFormasPagamento() {
     if (idsVistos[id]) id = id + '_' + Math.random().toString(36).slice(2, 5);
     idsVistos[id] = true;
     const out = { id, nome: f.nome.trim(), tipo: f.tipo === 'pix' ? 'pix' : 'outro', ativo: f.ativo !== false };
-    if (out.tipo === 'pix') { out.pixChave = (f.pixChave || '').trim(); out.pixQr = f.pixQr || ''; }
+    if (out.tipo === 'pix') {
+      out.pixChave = (f.pixChave || '').trim();
+      out.pixNome = (f.pixNome || '').trim();
+      out.pixCidade = (f.pixCidade || '').trim();
+      out.pixQr = f.pixQr || '';
+    }
     return out;
   });
   st.style.color = '#94A4CC'; st.textContent = 'Salvando...';
