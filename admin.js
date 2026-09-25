@@ -1347,7 +1347,7 @@ function renderAgendamentosTable(data) {
   const tbody = document.getElementById('agendamentos-body');
   if (!tbody) return;
   if (!data.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#5E6E9E;padding:32px;">Nenhum agendamento encontrado.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#5E6E9E;padding:32px;">Nenhum agendamento encontrado.</td></tr>';
     return;
   }
   tbody.innerHTML = data.map(a => `<tr data-id="${a.id}" ${a.origem === 'avulso' ? 'style="border-left:2px solid rgba(235, 197, 49,0.3);"' : ''}>
@@ -1356,6 +1356,7 @@ function renderAgendamentosTable(data) {
     <td data-label="Serviço">${a.servico||'--'}</td>
     <td data-label="Data">${a.data ? formatDate(a.data) : '--'}</td>
     <td data-label="Horário">${a.horario||'--'}</td>
+    <td data-label="Pagamento">${a.formaPagamento||'--'}</td>
     <td data-label="Valor" style="color:var(--gold);font-family:var(--font-display);font-size:18px;">${fmtValorAgd(a)}</td>
     <td data-label="Status">${badgeHTML(a.status)}</td>
     <td>
