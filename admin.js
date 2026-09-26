@@ -183,8 +183,7 @@ function renderAjustes(manterCores) {
   ajStatus('aj-fonte-status', '');
   renderCoresAjuste(manterCores);
   const seg = seguranciaPixAtual();
-  set('aj-pix-seg-tel', seg.tel);
-  set('aj-pix-seg-apikey', seg.apikey);
+  set('aj-pix-seg-email', seg.email);
   ajStatus('aj-pix-seg-status', '');
 }
 
@@ -937,26 +936,31 @@ function adicionarFormaPagamento() {
   if (ultimoNome) { ultimoNome.focus(); ultimoNome.select(); }
 }
 
-// ── Segurança da chave Pix (código de confirmação via WhatsApp) ──
-// Guardada em config/barbearia.pixSeguranca: { tel, apikey } — usados pelo CallMeBot (serviço gratuito de terceiros).
+// ── Segurança da chave Pix (código de confirmação por E-MAIL) ──
+// Guardada em config/barbearia.pixSeguranca: { email } — envio feito via EmailJS (serviço gratuito de terceiros, chamado direto do navegador, sem precisar de servidor).
+// Configure sua conta grátis em https://www.emailjs.com/ e preencha as 3 constantes abaixo (Public Key, Service ID, Template ID).
+const EMAILJS_PUBLIC_KEY  = 'COLE_AQUI_SUA_PUBLIC_KEY';
+const EMAILJS_SERVICE_ID  = 'COLE_AQUI_SEU_SERVICE_ID';
+const EMAILJS_TEMPLATE_ID = 'COLE_AQUI_SEU_TEMPLATE_ID';
+if (window.emailjs && EMAILJS_PUBLIC_KEY && !EMAILJS_PUBLIC_KEY.startsWith('COLE_AQUI')) {
+  emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
+}
+
 function seguranciaPixAtual() {
   const s = BARBEARIA.pixSeguranca || {};
-  return { tel: s.tel || '', apikey: s.apikey || '' };
+  return { email: s.email || '' };
 }
 async function salvarSegurancaPix() {
-  let tel = document.getElementById('aj-pix-seg-tel').value.trim().replace(/\D/g, '');
-  const apikey = document.getElementById('aj-pix-seg-apikey').value.trim();
-  if (tel && (tel.length === 10 || tel.length === 11)) tel = '55' + tel;
-  if (tel && !/^55\d{10,11}$/.test(tel)) { ajStatus('aj-pix-seg-status', 'WhatsApp: use DDD + número (ex.: 85999998888).', '#e05555'); return; }
-  if ((tel && !apikey) || (!tel && apikey)) { ajStatus('aj-pix-seg-status', 'Preencha o WhatsApp e a chave da API juntos (ou deixe os dois em branco).', '#e05555'); return; }
+  const email = document.getElementById('aj-pix-seg-email').value.trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { ajStatus('aj-pix-seg-status', 'Digite um e-mail válido.', '#e05555'); return; }
   ajStatus('aj-pix-seg-status', 'Salvando...');
   try {
     await db.collection('config').doc('barbearia').set({
-      pixSeguranca: { tel, apikey },
+      pixSeguranca: { email },
       atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
     await carregarAjustesRemotos();
-    ajStatus('aj-pix-seg-status', tel ? 'Salvo! Agora toda troca de chave Pix pede código.' : 'Salvo. Sem WhatsApp/chave, a troca da chave Pix não pede código.', '#4caf50');
+    ajStatus('aj-pix-seg-status', email ? 'Salvo! Agora toda troca de chave Pix pede código.' : 'Salvo. Sem e-mail cadastrado, a troca da chave Pix não pede código.', '#4caf50');
     showToast('Segurança do Pix atualizada.');
   } catch (e) {
     console.warn(e);
@@ -978,12 +982,16 @@ let _pixVerifExpira = 0;
 
 function gerarCodigo6() { return String(Math.floor(100000 + Math.random() * 900000)); }
 
-async function enviarCodigoViaCallMeBot(codigo) {
+async function enviarCodigoViaEmail(codigo) {
   const seg = seguranciaPixAtual();
-  const texto = encodeURIComponent('Codigo para confirmar a troca da chave Pix no painel: ' + codigo + ' (vale por 10 minutos)');
-  const url = 'https://api.callmebot.com/whatsapp.php?phone=' + seg.tel + '&text=' + texto + '&apikey=' + encodeURIComponent(seg.apikey);
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error('Falha ao enviar (HTTP ' + resp.status + ')');
+  if (!seg.email) throw new Error('E-mail de segurança não configurado.');
+  if (!window.emailjs) throw new Error('Biblioteca do EmailJS não carregada.');
+  if (!EMAILJS_SERVICE_ID || EMAILJS_SERVICE_ID.startsWith('COLE_AQUI')) throw new Error('EmailJS ainda não configurado (veja EMAILJS_SERVICE_ID/TEMPLATE_ID/PUBLIC_KEY em admin.js).');
+  await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+    to_email: seg.email,
+    codigo: codigo,
+    mensagem: 'Codigo para confirmar a troca da chave Pix no painel: ' + codigo + ' (vale por 10 minutos)',
+  });
 }
 
 async function dispararVerificacaoPix() {
@@ -994,15 +1002,15 @@ async function dispararVerificacaoPix() {
   _pixVerifExpira = Date.now() + 10 * 60 * 1000;
   box.style.display = 'block';
   document.getElementById('pix-verif-codigo').value = '';
-  st.style.color = '#94A4CC'; st.textContent = 'Enviando código pro seu WhatsApp...';
+  st.style.color = '#94A4CC'; st.textContent = 'Enviando código pro seu e-mail...';
   stPag.style.color = '#94A4CC'; stPag.textContent = 'Aguardando confirmação da troca da chave Pix (veja abaixo).';
   box.scrollIntoView({ behavior: 'smooth', block: 'center' });
   try {
-    await enviarCodigoViaCallMeBot(_pixVerifCodigo);
-    st.style.color = '#4caf50'; st.textContent = 'Código enviado! Confira seu WhatsApp e digite abaixo.';
+    await enviarCodigoViaEmail(_pixVerifCodigo);
+    st.style.color = '#4caf50'; st.textContent = 'Código enviado! Confira seu e-mail e digite abaixo.';
   } catch (e) {
     console.warn(e);
-    st.style.color = '#e05555'; st.textContent = 'Não consegui enviar o código (verifique a chave do CallMeBot). ' + (e.message || '');
+    st.style.color = '#e05555'; st.textContent = 'Não consegui enviar o código (verifique a configuração do EmailJS). ' + (e.message || '');
   }
 }
 
@@ -1058,7 +1066,7 @@ async function salvarFormasPagamento() {
   });
 
   const seg = seguranciaPixAtual();
-  if (seg.tel && seg.apikey && pixDadosSensiveisMudaram(formas)) {
+  if (seg.email && pixDadosSensiveisMudaram(formas)) {
     _pixPendenteFormas = formas;
     await dispararVerificacaoPix();
     return;
