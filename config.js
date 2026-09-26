@@ -540,6 +540,7 @@ function aplicarFonteTopo() {
 // A última versão fica guardada no aparelho para a tela já abrir certa, sem piscar.
 BARBEARIA.logo = '';
 BARBEARIA.tema = null;
+BARBEARIA.pixSeguranca = BARBEARIA.pixSeguranca || {};
 const AJUSTES_CACHE_KEY = 'barbearia_ajustes_' + BARBEARIA.firebase.projectId;
 
 function aplicarAjustes(o) {
@@ -553,6 +554,8 @@ function aplicarAjustes(o) {
   if (Array.isArray(o.planos)) BARBEARIA.planos = o.planos;
   if ('logo' in o) BARBEARIA.logo = o.logo || '';
   if (FONTES_TOPO.some(f => f.id === o.fonte)) BARBEARIA.fonte = o.fonte;   // letra do nome no topo do site
+  // E-mail de segurança usado para confirmar troca da chave Pix (aba Ajustes > Formas de Pagamento)
+  if (o.pixSeguranca && typeof o.pixSeguranca === 'object') BARBEARIA.pixSeguranca = o.pixSeguranca;
   // Cores escolhidas no painel (aba Ajustes): { destaque, fundo }. Sem elas, vale o que foi escolhido na criação.
   const cs = o.cores;
   BARBEARIA.tema = (cs && TEMA_BARBEARIA.ehHex(cs.destaque) && TEMA_BARBEARIA.ehHex(cs.fundo))
