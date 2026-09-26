@@ -182,9 +182,7 @@ function renderAjustes(manterCores) {
   renderFontesAjuste();
   ajStatus('aj-fonte-status', '');
   renderCoresAjuste(manterCores);
-  const seg = seguranciaPixAtual();
-  set('aj-pix-seg-email', seg.email);
-  ajStatus('aj-pix-seg-status', '');
+  renderSegurancaEmailUI();
 }
 
 // ── Logo ──
@@ -950,9 +948,116 @@ function seguranciaPixAtual() {
   const s = BARBEARIA.pixSeguranca || {};
   return { email: s.email || '' };
 }
+
+function mascararEmail(email) {
+  if (!email || email.indexOf('@') === -1) return '••••';
+  const [usuario, dominio] = email.split('@');
+  const usuarioMasc = usuario.length <= 2 ? usuario[0] + '•••' : usuario.slice(0, 2) + '•••';
+  const partesDominio = dominio.split('.');
+  const nomeDominio = partesDominio[0] || '';
+  const domMasc = nomeDominio.length <= 1 ? '•••' : nomeDominio[0] + '•••';
+  const resto = partesDominio.slice(1).join('.');
+  return usuarioMasc + '@' + domMasc + (resto ? '.' + resto : '');
+}
+
+let _segEmailNovo = null;
+let _segEmailVerifCodigo = null;
+let _segEmailVerifExpira = 0;
+
+// Mostra o e-mail cadastrado sempre mascarado (nunca em texto puro na tela), com botão pra iniciar a troca
+function renderSegurancaEmailUI() {
+  const seg = seguranciaPixAtual();
+  const atualEl = document.getElementById('aj-pix-seg-email-atual');
+  const input = document.getElementById('aj-pix-seg-email');
+  const btnTrocar = document.getElementById('aj-pix-seg-btn-trocar');
+  const btnSalvar = document.getElementById('aj-pix-seg-btn-salvar');
+  const btnCancelar = document.getElementById('aj-pix-seg-btn-cancelar');
+  input.style.display = 'none';
+  input.value = '';
+  btnSalvar.style.display = 'none';
+  btnCancelar.style.display = 'none';
+  document.getElementById('pix-seg-email-verif-box').style.display = 'none';
+  atualEl.style.display = 'block';
+  if (seg.email) {
+    atualEl.textContent = mascararEmail(seg.email);
+    btnTrocar.textContent = 'Trocar e-mail';
+  } else {
+    atualEl.textContent = 'Nenhum e-mail cadastrado ainda';
+    btnTrocar.textContent = 'Cadastrar e-mail';
+  }
+  btnTrocar.style.display = 'inline-block';
+  ajStatus('aj-pix-seg-status', '');
+}
+
+function iniciarTrocaEmailSeguranca() {
+  const seg = seguranciaPixAtual();
+  document.getElementById('aj-pix-seg-email-atual').style.display = 'none';
+  document.getElementById('aj-pix-seg-btn-trocar').style.display = 'none';
+  const input = document.getElementById('aj-pix-seg-email');
+  input.style.display = 'block';
+  input.value = '';
+  input.focus();
+  const btnSalvar = document.getElementById('aj-pix-seg-btn-salvar');
+  btnSalvar.style.display = 'inline-block';
+  btnSalvar.textContent = seg.email ? 'Continuar' : 'Salvar';
+  document.getElementById('aj-pix-seg-btn-cancelar').style.display = 'inline-block';
+}
+
+function cancelarEdicaoEmailSeguranca() {
+  _segEmailNovo = null; _segEmailVerifCodigo = null; _segEmailVerifExpira = 0;
+  renderSegurancaEmailUI();
+}
+
+// Se já existe um e-mail cadastrado, qualquer troca (inclusive apagar) exige o código mandado pro e-mail ATUAL,
+// assim quem não tem acesso a esse e-mail não consegue redirecionar os códigos de confirmação da chave Pix pra si mesmo.
 async function salvarSegurancaPix() {
-  const email = document.getElementById('aj-pix-seg-email').value.trim();
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { ajStatus('aj-pix-seg-status', 'Digite um e-mail válido.', '#e05555'); return; }
+  const novoEmail = document.getElementById('aj-pix-seg-email').value.trim();
+  if (novoEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(novoEmail)) { ajStatus('aj-pix-seg-status', 'Digite um e-mail válido.', '#e05555'); return; }
+  const seg = seguranciaPixAtual();
+  if (seg.email) {
+    _segEmailNovo = novoEmail;
+    await dispararVerificacaoTrocaEmailSeguranca();
+    return;
+  }
+  await gravarSegurancaPixNoFirestore(novoEmail);
+}
+
+async function dispararVerificacaoTrocaEmailSeguranca() {
+  const box = document.getElementById('pix-seg-email-verif-box');
+  const st = document.getElementById('pix-seg-email-verif-status');
+  const seg = seguranciaPixAtual();
+  _segEmailVerifCodigo = gerarCodigo6();
+  _segEmailVerifExpira = Date.now() + 10 * 60 * 1000;
+  box.style.display = 'block';
+  document.getElementById('pix-seg-email-verif-codigo').value = '';
+  st.style.color = '#94A4CC'; st.textContent = 'Enviando código pro e-mail atualmente cadastrado...';
+  box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  try {
+    await enviarCodigoEmail(seg.email, _segEmailVerifCodigo, 'Codigo para confirmar a troca do e-mail de seguranca do Pix: ' + _segEmailVerifCodigo + ' (vale por 10 minutos)');
+    st.style.color = '#4caf50'; st.textContent = 'Código enviado! Confira o e-mail que estava cadastrado até agora.';
+  } catch (e) {
+    console.warn(e);
+    st.style.color = '#e05555'; st.textContent = 'Não consegui enviar o código. ' + (e.message || '');
+  }
+}
+
+async function reenviarCodigoTrocaEmailSeguranca() {
+  if (_segEmailNovo === null) return;
+  await dispararVerificacaoTrocaEmailSeguranca();
+}
+
+async function confirmarTrocaEmailSeguranca() {
+  const st = document.getElementById('pix-seg-email-verif-status');
+  const digitado = document.getElementById('pix-seg-email-verif-codigo').value.trim();
+  if (_segEmailNovo === null || !_segEmailVerifCodigo) { st.style.color = '#e05555'; st.textContent = 'Nada pendente para confirmar.'; return; }
+  if (Date.now() > _segEmailVerifExpira) { st.style.color = '#e05555'; st.textContent = 'Código expirado. Clique em "Reenviar código".'; return; }
+  if (digitado !== _segEmailVerifCodigo) { st.style.color = '#e05555'; st.textContent = 'Código incorreto.'; return; }
+  const novoEmail = _segEmailNovo;
+  _segEmailNovo = null; _segEmailVerifCodigo = null; _segEmailVerifExpira = 0;
+  await gravarSegurancaPixNoFirestore(novoEmail);
+}
+
+async function gravarSegurancaPixNoFirestore(email) {
   ajStatus('aj-pix-seg-status', 'Salvando...');
   try {
     await db.collection('config').doc('barbearia').set({
@@ -982,16 +1087,16 @@ let _pixVerifExpira = 0;
 
 function gerarCodigo6() { return String(Math.floor(100000 + Math.random() * 900000)); }
 
-async function enviarCodigoViaEmail(codigo) {
-  const seg = seguranciaPixAtual();
-  if (!seg.email) throw new Error('E-mail de segurança não configurado.');
+async function enviarCodigoEmail(destino, codigo, mensagem) {
+  if (!destino) throw new Error('E-mail de destino não configurado.');
   if (!window.emailjs) throw new Error('Biblioteca do EmailJS não carregada.');
   if (!EMAILJS_SERVICE_ID || EMAILJS_SERVICE_ID.startsWith('COLE_AQUI')) throw new Error('EmailJS ainda não configurado (veja EMAILJS_SERVICE_ID/TEMPLATE_ID/PUBLIC_KEY em admin.js).');
-  await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
-    to_email: seg.email,
-    codigo: codigo,
-    mensagem: 'Codigo para confirmar a troca da chave Pix no painel: ' + codigo + ' (vale por 10 minutos)',
-  });
+  await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, { to_email: destino, codigo, mensagem });
+}
+
+async function enviarCodigoViaEmail(codigo) {
+  const seg = seguranciaPixAtual();
+  await enviarCodigoEmail(seg.email, codigo, 'Codigo para confirmar a troca da chave Pix no painel: ' + codigo + ' (vale por 10 minutos)');
 }
 
 async function dispararVerificacaoPix() {
