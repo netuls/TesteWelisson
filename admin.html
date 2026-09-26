@@ -190,7 +190,7 @@
       </nav>
       <div class="sidebar-bottom">
         <button class="btn-logout" onclick="doLogout()">Sair</button>
-        <a href="index.html" class="btn-site" target="_blank">Ver Site ↗</a>
+        <a href="./" class="btn-site" target="_blank">Ver Site ↗</a>
       </div>
     </aside>
 
@@ -842,88 +842,6 @@
   </div>
 
   <!-- MODAL CONCLUIR TODOS -->
-  <div id="troca-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;">
-    <div style="background:#0C1838;border:1px solid #16295C;border-radius:2px;padding:28px 26px;max-width:440px;width:92%;max-height:92vh;overflow-y:auto;box-shadow:0 32px 80px rgba(0,0,0,0.8);">
-      <h3 style="font-family:'Oswald',sans-serif;font-size:14px;letter-spacing:3px;text-transform:uppercase;color:#F1EAD6;margin-bottom:6px;">Trocar plano</h3>
-      <div id="troca-cliente" style="font-family:'Oswald',sans-serif;font-size:15px;color:#EBC531;letter-spacing:.5px;"></div>
-      <div style="font-family:'Roboto',sans-serif;font-size:12px;color:#7183B4;margin:2px 0 18px;">Plano atual: <span id="troca-atual"></span></div>
-
-      <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px;">
-        <span style="font-family:'Oswald',sans-serif;font-size:10px;letter-spacing:2px;color:#5E6E9E;text-transform:uppercase;">Novo plano</span>
-        <select id="troca-novo" onchange="atualizarTrocarPlano('plano')" style="background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:10px 14px;color:#F1EAD6;font-family:'Roboto',sans-serif;font-size:14px;outline:none;color-scheme:dark;cursor:pointer;"></select>
-      </div>
-
-      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;">
-        <label id="troca-modo-novo" style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #233F80;border-radius:6px;cursor:pointer;">
-          <input type="radio" name="troca-modo" value="novo" checked onchange="atualizarTrocarPlano('modo')" style="margin-top:3px;accent-color:#EBC531;">
-          <span style="font-family:'Roboto',sans-serif;font-size:12px;color:#94A4CC;line-height:1.5;"><strong style="color:#F1EAD6;">Começar novo ciclo</strong><br>Cobra o valor do novo plano e o vencimento passa a ser 1 mês depois da data da troca.</span>
-        </label>
-        <label id="troca-modo-manter" style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #233F80;border-radius:6px;cursor:pointer;">
-          <input type="radio" name="troca-modo" value="manter" onchange="atualizarTrocarPlano('modo')" style="margin-top:3px;accent-color:#EBC531;">
-          <span style="font-family:'Roboto',sans-serif;font-size:12px;color:#94A4CC;line-height:1.5;"><strong style="color:#F1EAD6;">Manter o vencimento atual</strong><br>Troca agora e o vencimento continua o mesmo. Por padrão cobra só a diferença de preço (se o novo plano for mais caro).</span>
-        </label>
-      </div>
-
-      <div style="display:flex;gap:12px;margin-bottom:14px;">
-        <div style="display:flex;flex-direction:column;gap:4px;flex:1;">
-          <span style="font-family:'Oswald',sans-serif;font-size:10px;letter-spacing:2px;color:#5E6E9E;text-transform:uppercase;">Data da troca</span>
-          <input type="date" id="troca-data" onchange="atualizarTrocarPlano('data')" style="background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:10px 12px;color:#F1EAD6;font-family:'Roboto',sans-serif;font-size:14px;outline:none;color-scheme:dark;width:100%;"/>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:4px;flex:1;">
-          <span style="font-family:'Oswald',sans-serif;font-size:10px;letter-spacing:2px;color:#5E6E9E;text-transform:uppercase;">Valor no financeiro (R$)</span>
-          <input type="number" id="troca-valor" min="0" step="0.01" oninput="atualizarTrocarPlano('valor')" style="background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:10px 12px;color:#F1EAD6;font-family:'Roboto',sans-serif;font-size:14px;outline:none;width:100%;"/>
-        </div>
-      </div>
-
-      <div id="troca-resumo" style="font-family:'Roboto',sans-serif;font-size:12px;color:#94A4CC;line-height:1.6;padding:10px 12px;background:#0A1330;border:1px solid #122452;border-radius:6px;margin-bottom:6px;"></div>
-      <div id="troca-status" style="font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:1px;min-height:16px;margin-bottom:12px;"></div>
-
-      <div style="display:flex;gap:12px;">
-        <button onclick="fecharTrocarPlano()" style="flex:1;padding:12px;background:transparent;border:1px solid #233F80;border-radius:6px;color:#94A4CC;font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;">Cancelar</button>
-        <button onclick="confirmarTrocarPlano()" style="flex:1;padding:12px;background:#EBC531;border:none;border-radius:6px;color:#070E24;font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700;cursor:pointer;">Trocar plano</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="zerar-receitas-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:10000;align-items:center;justify-content:center;">
-    <div style="background:#0C1838;border:1px solid #16295C;border-radius:2px;padding:30px 26px;max-width:420px;width:92%;box-shadow:0 32px 80px rgba(0,0,0,0.8);">
-      <h3 style="font-family:'Oswald',sans-serif;font-size:14px;letter-spacing:3px;text-transform:uppercase;color:#F1EAD6;margin-bottom:10px;">Zerar receitas</h3>
-      <p style="font-family:'Roboto',sans-serif;font-size:13px;color:#94A4CC;line-height:1.6;margin-bottom:12px;">
-        Isso zera o faturamento (atendimentos concluídos e mensalidades de planos) que está no painel hoje:
-        <strong id="zerar-receitas-valor" style="color:#EBC531;"></strong>.
-      </p>
-      <p style="font-family:'Roboto',sans-serif;font-size:12px;color:#7183B4;line-height:1.6;margin-bottom:16px;">
-        Clientes, agendamentos, histórico de visitas e planos <strong style="color:#F1EAD6;">não são apagados</strong> — só o dinheiro deixa de ser contado. Atendimentos e pagamentos feitos depois disso voltam a somar normalmente. Essa ação não pode ser desfeita.
-      </p>
-      <input type="text" id="zerar-receitas-input" placeholder="Digite ZERAR para confirmar" oninput="validarZerarReceitas()" autocomplete="off"
-        style="width:100%;background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:10px 14px;color:#F1EAD6;font-family:'Roboto',sans-serif;font-size:14px;outline:none;margin-bottom:8px;"/>
-      <div id="zerar-receitas-status" style="font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:1px;min-height:16px;margin-bottom:10px;color:#94A4CC;"></div>
-      <div style="display:flex;gap:12px;">
-        <button onclick="fecharZerarReceitas()" style="flex:1;padding:12px;background:transparent;border:1px solid #233F80;border-radius:6px;color:#94A4CC;font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;">Cancelar</button>
-        <button id="zerar-receitas-confirmar" onclick="confirmarZerarReceitas()" disabled style="flex:1;padding:12px;background:rgba(176,48,48,0.08);border:1px solid rgba(176,48,48,0.2);border-radius:6px;color:#7183B4;font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700;cursor:not-allowed;">Zerar</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="editrec-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:10000;align-items:center;justify-content:center;">
-    <div style="background:#0C1838;border:1px solid #16295C;border-radius:2px;padding:24px 22px;max-width:680px;width:94%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 32px 80px rgba(0,0,0,0.8);">
-      <h3 style="font-family:'Oswald',sans-serif;font-size:14px;letter-spacing:3px;text-transform:uppercase;color:#F1EAD6;margin-bottom:6px;">Editar receita</h3>
-      <p style="font-family:'Roboto',sans-serif;font-size:12px;color:#7183B4;line-height:1.5;margin-bottom:14px;">Corrija o valor de cada atendimento e de cada pagamento de plano. Use ✕ para tirar um item da receita (ele continua no histórico, só deixa de somar).</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-        <input type="date" id="editrec-de" onchange="renderEditarReceita()" title="De" style="background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:8px 10px;color:#F1EAD6;font-family:'Roboto',sans-serif;font-size:13px;outline:none;color-scheme:dark;"/>
-        <input type="date" id="editrec-ate" onchange="renderEditarReceita()" title="Até" style="background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:8px 10px;color:#F1EAD6;font-family:'Roboto',sans-serif;font-size:13px;outline:none;color-scheme:dark;"/>
-        <input type="text" id="editrec-busca" oninput="renderEditarReceita()" placeholder="Buscar cliente..." style="flex:1;min-width:130px;background:#0F1F45;border:1px solid #233F80;border-radius:6px;padding:8px 12px;color:#F1EAD6;font-family:'Roboto',sans-serif;font-size:13px;outline:none;"/>
-      </div>
-      <div id="editrec-resumo" style="font-family:'Roboto',sans-serif;font-size:12px;color:#94A4CC;margin-bottom:8px;"></div>
-      <div id="editrec-lista" style="overflow-y:auto;flex:1;min-height:120px;display:flex;flex-direction:column;gap:6px;padding-right:2px;"></div>
-      <div id="editrec-status" style="font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:1px;min-height:16px;margin:10px 0 8px;color:#94A4CC;"></div>
-      <div style="display:flex;gap:12px;">
-        <button onclick="fecharEditarReceita()" style="flex:1;padding:12px;background:transparent;border:1px solid #233F80;border-radius:6px;color:#94A4CC;font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;">Cancelar</button>
-        <button id="editrec-salvar" onclick="salvarEditarReceita()" style="flex:1;padding:12px;background:#EBC531;border:none;border-radius:6px;color:#070E24;font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700;cursor:pointer;">Salvar alterações</button>
-      </div>
-    </div>
-  </div>
-
   <div id="concluir-todos-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;">
     <div style="background:#0C1838;border:1px solid #16295C;border-radius:2px;padding:36px 32px;max-width:380px;width:90%;text-align:center;box-shadow:0 32px 80px rgba(0,0,0,0.8);">
       
