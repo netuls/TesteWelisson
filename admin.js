@@ -182,6 +182,10 @@ function renderAjustes(manterCores) {
   renderFontesAjuste();
   ajStatus('aj-fonte-status', '');
   renderCoresAjuste(manterCores);
+  const seg = seguranciaPixAtual();
+  set('aj-pix-seg-tel', seg.tel);
+  set('aj-pix-seg-apikey', seg.apikey);
+  ajStatus('aj-pix-seg-status', '');
 }
 
 // ── Logo ──
@@ -933,6 +937,101 @@ function adicionarFormaPagamento() {
   if (ultimoNome) { ultimoNome.focus(); ultimoNome.select(); }
 }
 
+// ── Segurança da chave Pix (código de confirmação via WhatsApp) ──
+// Guardada em config/barbearia.pixSeguranca: { tel, apikey } — usados pelo CallMeBot (serviço gratuito de terceiros).
+function seguranciaPixAtual() {
+  const s = BARBEARIA.pixSeguranca || {};
+  return { tel: s.tel || '', apikey: s.apikey || '' };
+}
+async function salvarSegurancaPix() {
+  let tel = document.getElementById('aj-pix-seg-tel').value.trim().replace(/\D/g, '');
+  const apikey = document.getElementById('aj-pix-seg-apikey').value.trim();
+  if (tel && (tel.length === 10 || tel.length === 11)) tel = '55' + tel;
+  if (tel && !/^55\d{10,11}$/.test(tel)) { ajStatus('aj-pix-seg-status', 'WhatsApp: use DDD + número (ex.: 85999998888).', '#e05555'); return; }
+  if ((tel && !apikey) || (!tel && apikey)) { ajStatus('aj-pix-seg-status', 'Preencha o WhatsApp e a chave da API juntos (ou deixe os dois em branco).', '#e05555'); return; }
+  ajStatus('aj-pix-seg-status', 'Salvando...');
+  try {
+    await db.collection('config').doc('barbearia').set({
+      pixSeguranca: { tel, apikey },
+      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    await carregarAjustesRemotos();
+    ajStatus('aj-pix-seg-status', tel ? 'Salvo! Agora toda troca de chave Pix pede código.' : 'Salvo. Sem WhatsApp/chave, a troca da chave Pix não pede código.', '#4caf50');
+    showToast('Segurança do Pix atualizada.');
+  } catch (e) {
+    console.warn(e);
+    ajStatus('aj-pix-seg-status', 'Erro ao salvar: ' + (e.message || e.code || e), '#e05555');
+  }
+}
+
+// Compara chave/nome/cidade de cada forma tipo Pix entre o que está salvo (FORMAS_PAGAMENTO) e o que vai ser salvo agora
+function pixDadosSensiveisMudaram(novasFormas) {
+  const chave = f => (f.tipo === 'pix') ? (f.pixChave || '') + '|' + (f.pixNome || '') + '|' + (f.pixCidade || '') : null;
+  const antigasPorId = {};
+  FORMAS_PAGAMENTO.forEach(f => { if (f.tipo === 'pix') antigasPorId[f.id] = chave(f); });
+  return novasFormas.some(f => f.tipo === 'pix' && chave(f) !== (antigasPorId[f.id] ?? null));
+}
+
+let _pixPendenteFormas = null;
+let _pixVerifCodigo = null;
+let _pixVerifExpira = 0;
+
+function gerarCodigo6() { return String(Math.floor(100000 + Math.random() * 900000)); }
+
+async function enviarCodigoViaCallMeBot(codigo) {
+  const seg = seguranciaPixAtual();
+  const texto = encodeURIComponent('Codigo para confirmar a troca da chave Pix no painel: ' + codigo + ' (vale por 10 minutos)');
+  const url = 'https://api.callmebot.com/whatsapp.php?phone=' + seg.tel + '&text=' + texto + '&apikey=' + encodeURIComponent(seg.apikey);
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('Falha ao enviar (HTTP ' + resp.status + ')');
+}
+
+async function dispararVerificacaoPix() {
+  const box = document.getElementById('pix-verif-box');
+  const st = document.getElementById('pix-verif-status');
+  const stPag = document.getElementById('aj-pagamento-status');
+  _pixVerifCodigo = gerarCodigo6();
+  _pixVerifExpira = Date.now() + 10 * 60 * 1000;
+  box.style.display = 'block';
+  document.getElementById('pix-verif-codigo').value = '';
+  st.style.color = '#94A4CC'; st.textContent = 'Enviando código pro seu WhatsApp...';
+  stPag.style.color = '#94A4CC'; stPag.textContent = 'Aguardando confirmação da troca da chave Pix (veja abaixo).';
+  box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  try {
+    await enviarCodigoViaCallMeBot(_pixVerifCodigo);
+    st.style.color = '#4caf50'; st.textContent = 'Código enviado! Confira seu WhatsApp e digite abaixo.';
+  } catch (e) {
+    console.warn(e);
+    st.style.color = '#e05555'; st.textContent = 'Não consegui enviar o código (verifique a chave do CallMeBot). ' + (e.message || '');
+  }
+}
+
+async function reenviarCodigoPix() {
+  if (!_pixPendenteFormas) return;
+  await dispararVerificacaoPix();
+}
+
+function cancelarVerificacaoPix() {
+  _pixPendenteFormas = null;
+  _pixVerifCodigo = null;
+  _pixVerifExpira = 0;
+  document.getElementById('pix-verif-box').style.display = 'none';
+  const stPag = document.getElementById('aj-pagamento-status');
+  stPag.style.color = '#94A4CC'; stPag.textContent = 'Troca da chave Pix cancelada.';
+}
+
+async function confirmarCodigoPix() {
+  const st = document.getElementById('pix-verif-status');
+  const digitado = document.getElementById('pix-verif-codigo').value.trim();
+  if (!_pixPendenteFormas || !_pixVerifCodigo) { st.style.color = '#e05555'; st.textContent = 'Nada pendente para confirmar.'; return; }
+  if (Date.now() > _pixVerifExpira) { st.style.color = '#e05555'; st.textContent = 'Código expirado. Clique em "Reenviar código".'; return; }
+  if (digitado !== _pixVerifCodigo) { st.style.color = '#e05555'; st.textContent = 'Código incorreto.'; return; }
+  const formas = _pixPendenteFormas;
+  _pixPendenteFormas = null; _pixVerifCodigo = null; _pixVerifExpira = 0;
+  document.getElementById('pix-verif-box').style.display = 'none';
+  await gravarFormasPagamentoNoFirestore(formas);
+}
+
 async function salvarFormasPagamento() {
   const st = document.getElementById('aj-pagamento-status');
   if (!_pagamentoEdit.length) { st.style.color = '#e05555'; st.textContent = 'Adicione pelo menos uma forma de pagamento.'; return; }
@@ -957,6 +1056,19 @@ async function salvarFormasPagamento() {
     }
     return out;
   });
+
+  const seg = seguranciaPixAtual();
+  if (seg.tel && seg.apikey && pixDadosSensiveisMudaram(formas)) {
+    _pixPendenteFormas = formas;
+    await dispararVerificacaoPix();
+    return;
+  }
+  await gravarFormasPagamentoNoFirestore(formas);
+}
+
+// Grava de fato as formas de pagamento no Firestore (chamado direto, ou depois do código confirmado)
+async function gravarFormasPagamentoNoFirestore(formas) {
+  const st = document.getElementById('aj-pagamento-status');
   st.style.color = '#94A4CC'; st.textContent = 'Salvando...';
   try {
     await db.collection('config').doc('pagamento').set({
